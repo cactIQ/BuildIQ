@@ -63,10 +63,12 @@ export async function build(ctx) {
   const place = (kind, id, bbox, supportY) => registry.place({ kind, id, bbox, supportY, module: MOD });
 
   /* ------------------------------ materials ------------------------------ */
+  // keys used below -> material names (clubhouse body/trim, coping and outer mosaic are amenity-specific variants)
+  const alias = { coping: 'amenities.coping', mosaic: 'amenities.mosaicBlue', plaster: 'amenities.clubBody', trim: 'amenities.clubTrim' };
   const names = ['deck', 'coping', 'mosaic', 'steel', 'plaster', 'trim', 'concrete', 'frame', 'walnut', 'lawn', 'lawnStriped', 'kerb',
-    'amenities.poolTile', 'amenities.water', 'amenities.grating', 'amenities.glazing', 'amenities.letters', 'amenities.soil',
-    'amenities.epdm', 'amenities.play'];
-  const mats = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await M.use(n)])));
+    'amenities.poolTile', 'amenities.water', 'amenities.grating', 'amenities.glazing', 'amenities.glass', 'amenities.letters', 'amenities.soil',
+    'amenities.epdm', 'amenities.play', 'amenities.copingBeige'];
+  const mats = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await M.use(alias[n] || n)])));
 
   /* =============================== POOL ZONE =============================== */
   const { deckY, deck, basin: bs, waterY, floorY } = L;
@@ -90,8 +92,8 @@ export async function build(ctx) {
   box('amenities.poolTile', bs.x[1], floorY - T, bs.z[0], bs.x[1] + T, deckY, bs.z[1]);
   place('poolBasin', 'Pool/Basin', new THREE.Box3(new THREE.Vector3(bs.x[0] - T, floorY - T, bs.z[0] - T), new THREE.Vector3(bs.x[1] + T, deckY, bs.z[1] + T)), null);
 
-  // White coping ring (bullnose overhang 5 cm into the pool) + linear grating just outside it.
-  const cw = 0.4, ov = 0.05, cy0 = deckY - 0.03, cy1 = deckY + 0.04;
+  // Off-white coping ring, 0.35 m (bullnose overhang 5 cm into the pool) + linear grating just outside it.
+  const cw = 0.35, ov = 0.05, cy0 = deckY - 0.03, cy1 = deckY + 0.04;
   box('coping', bs.x[0] - cw, cy0, bs.z[0] - cw, bs.x[1] + cw, cy1, bs.z[0] + ov);
   box('coping', bs.x[0] - cw, cy0, bs.z[1] - ov, bs.x[1] + cw, cy1, bs.z[1] + cw);
   box('coping', bs.x[0] - cw, cy0, bs.z[0] + ov, bs.x[0] + ov, cy1, bs.z[1] - ov);
@@ -109,19 +111,19 @@ export async function build(ctx) {
   gstrip(gE, gn, gE + gw, gs, true);
   finish('Pool/Grating', util.mergeParts(grParts), mats['amenities.grating']);
 
-  // Kids' raised square feature on the south long edge: mosaic sides, shallow inner pool, broad coping.
+  // Kids' pool: a raised box (walls 0.45 m above the main water) straddling the south edge, blue/white mosaic outer
+  // faces, shallow inner pool, 0.3 m beige coping (5 cm overhang outward) - ref D.
   const K = L.kids, kx0 = K.c[0] - K.w / 2, kx1 = K.c[0] + K.w / 2, kz0 = K.c[1] - K.d / 2, kz1 = K.c[1] + K.d / 2;
-  const kTop = deckY + K.raise, kFloor = deckY + 0.08, kw = 0.32;
+  const kTop = waterY + 0.45, kCt = 0.07, kFloor = kTop - 0.3, kw = 0.25, kc = 0.05, ki = 0.3 - kc;   // ki: coping inner edge from the outer face
   box('mosaic', kx0, floorY, kz0, kx1, kFloor, kz1);
-  box('mosaic', kx0, kFloor, kz0, kx1, kTop - 0.06, kz0 + kw);
-  box('mosaic', kx0, kFloor, kz1 - kw, kx1, kTop - 0.06, kz1);
-  box('mosaic', kx0, kFloor, kz0 + kw, kx0 + kw, kTop - 0.06, kz1 - kw);
-  box('mosaic', kx1 - kw, kFloor, kz0 + kw, kx1, kTop - 0.06, kz1 - kw);
-  const kc = 0.08;   // coping overhang outward
-  box('concrete', kx0 - kc, kTop - 0.06, kz0 - kc, kx1 + kc, kTop, kz0 + kw + 0.03);
-  box('concrete', kx0 - kc, kTop - 0.06, kz1 - kw - 0.03, kx1 + kc, kTop, kz1 + kc);
-  box('concrete', kx0 - kc, kTop - 0.06, kz0 + kw + 0.03, kx0 + kw + 0.03, kTop, kz1 - kw - 0.03);
-  box('concrete', kx1 - kw - 0.03, kTop - 0.06, kz0 + kw + 0.03, kx1 + kc, kTop, kz1 - kw - 0.03);
+  box('mosaic', kx0, kFloor, kz0, kx1, kTop - kCt, kz0 + kw);
+  box('mosaic', kx0, kFloor, kz1 - kw, kx1, kTop - kCt, kz1);
+  box('mosaic', kx0, kFloor, kz0 + kw, kx0 + kw, kTop - kCt, kz1 - kw);
+  box('mosaic', kx1 - kw, kFloor, kz0 + kw, kx1, kTop - kCt, kz1 - kw);
+  box('amenities.copingBeige', kx0 - kc, kTop - kCt, kz0 - kc, kx1 + kc, kTop, kz0 + ki);
+  box('amenities.copingBeige', kx0 - kc, kTop - kCt, kz1 - ki, kx1 + kc, kTop, kz1 + kc);
+  box('amenities.copingBeige', kx0 - kc, kTop - kCt, kz0 + ki, kx0 + ki, kTop, kz1 - ki);
+  box('amenities.copingBeige', kx1 - ki, kTop - kCt, kz0 + ki, kx1 + kc, kTop, kz1 - ki);
   place('poolKids', 'Pool/Kids', new THREE.Box3(new THREE.Vector3(kx0 - kc, floorY, kz0 - kc), new THREE.Vector3(kx1 + kc, kTop, kz1 + kc)), null);
 
   // Round jacuzzi (raised), NW corner.
@@ -131,11 +133,19 @@ export async function build(ctx) {
   add('coping', ringGeo(J.r + 0.07, jIn - 0.03, jTop - 0.05, jTop, J.c[0], J.c[1], 40));
   place('poolJacuzzi', 'Pool/Jacuzzi', new THREE.Box3(new THREE.Vector3(J.c[0] - J.r - 0.07, floorY, J.c[1] - J.r - 0.07), new THREE.Vector3(J.c[0] + J.r + 0.07, jTop, J.c[1] + J.r + 0.07)), null);
 
-  // Water: basin sheet + kids' inner pool + jacuzzi disc, one transparent mesh.
-  const wParts = [];
-  { const g = new THREE.PlaneGeometry(bs.x[1] - bs.x[0], bs.z[1] - bs.z[0], 1, 1); g.rotateX(-Math.PI / 2); g.translate((bs.x[0] + bs.x[1]) / 2, waterY, (bs.z[0] + bs.z[1]) / 2); wParts.push({ geometry: g }); }
-  { const s = K.w - 2 * kw + 0.02, g = new THREE.PlaneGeometry(s, s); g.rotateX(-Math.PI / 2); g.translate(K.c[0], kTop - 0.1, K.c[1]); wParts.push({ geometry: g }); }
-  { const g = new THREE.CircleGeometry(jIn + 0.01, 32); g.rotateX(-Math.PI / 2); g.translate(J.c[0], jTop - 0.1, J.c[1]); wParts.push({ geometry: g }); }
+  // Water: basin sheet + kids' inner pool + jacuzzi disc, one transparent mesh. Vertex colours = depth gradient
+  // (shallow #3FA6D0 along the walls / in the small pools -> deep #1F5FA8 in the middle of the basin).
+  const wParts = [], SHALLOW = new THREE.Color('#3FA6D0'), DEEP = new THREE.Color('#1F5FA8');
+  const wColour = (g, fn) => {
+    const p = g.attributes.position, a = new Float32Array(p.count * 3), c = new THREE.Color();
+    for (let i = 0; i < p.count; i++) { c.copy(SHALLOW).lerp(DEEP, fn(p.getX(i), p.getZ(i))); a.set([c.r, c.g, c.b], i * 3); }
+    g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g;
+  };
+  const sm01 = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  { const g = new THREE.PlaneGeometry(bs.x[1] - bs.x[0], bs.z[1] - bs.z[0], 24, 13); g.rotateX(-Math.PI / 2); g.translate((bs.x[0] + bs.x[1]) / 2, waterY, (bs.z[0] + bs.z[1]) / 2);
+    wParts.push({ geometry: wColour(g, (x, z) => 0.15 + 0.85 * sm01(0, 2.0, Math.min(x - bs.x[0], bs.x[1] - x, z - bs.z[0], bs.z[1] - z))) }); }
+  { const s = K.w - 2 * kw + 0.02, g = new THREE.PlaneGeometry(s, s, 2, 2); g.rotateX(-Math.PI / 2); g.translate(K.c[0], kTop - 0.09, K.c[1]); wParts.push({ geometry: wColour(g, () => 0.1) }); }
+  { const g = new THREE.CircleGeometry(jIn + 0.01, 32); g.rotateX(-Math.PI / 2); g.translate(J.c[0], jTop - 0.1, J.c[1]); wParts.push({ geometry: wColour(g, () => 0.25) }); }
   const water = finish('Pool/Water', util.mergeParts(wParts, { uvTile: 4 }), mats['amenities.water'], { receive: false });
   water.renderOrder = 2;
 
@@ -184,8 +194,8 @@ export async function build(ctx) {
   box('plaster', X0, F, Z0 + pier, X0 + 0.25, wallTop, Z1 - pier);
   const sGlass = [-32.6, X1 - pier];
   box('plaster', X0 + pier, F, Z1 - 0.25, sGlass[0], wallTop, Z1);
-  // inner core behind the glazing (keeps the volume closed for shadows)
-  box('plaster', X0 + 0.3, F, Z0 + 0.3, X1 - 0.3, wallTop, Z1 - 0.3);
+  // inner core behind the curtains (keeps the volume closed for shadows)
+  box('plaster', X0 + 0.42, F, Z0 + 0.42, X1 - 0.42, wallTop, Z1 - 0.42);
 
   // Clustered round corner columns (3 per corner) with square bases and capitals.
   const colR = 0.16, off = 0.12, sep = 0.42;
@@ -200,16 +210,21 @@ export async function build(ctx) {
     }
   }
 
-  // Glazed runs: opaque reflective glass with curtains (one material) + dark frames (4 panels + transom on E/N; 3 on S).
-  const glazeParts = [], transomY = 2.6, gInset = 0.06;
+  // Glazed runs: reflective glass layer (Fresnel env) with sheer curtains on a plane 0.3 m behind it + black frames
+  // (4 panels + transom on E/N; 3 on S).
+  const glazeParts = [], glassParts = [], transomY = 2.6, gInset = 0.06, cInset = gInset + 0.3;
   function glazeRun(face, a0, a1, panels) {
-    const len = a1 - a0, hgt = wallTop - F, g = new THREE.PlaneGeometry(len, hgt, 1, 1);
-    const uv = g.attributes.uv.array; for (let i = 0; i < uv.length; i += 2) uv[i] *= len / 1.2;
-    const mid = (a0 + a1) / 2, ym = (F + wallTop) / 2;
-    if (face === 'E') { g.rotateY(Math.PI / 2); g.translate(X1 - gInset, ym, mid); }
-    if (face === 'N') { g.rotateY(Math.PI); g.translate(mid, ym, Z0 + gInset); }
-    if (face === 'S') { g.translate(mid, ym, Z1 - gInset); }
-    glazeParts.push({ geometry: g });
+    const len = a1 - a0, hgt = wallTop - F, mid = (a0 + a1) / 2, ym = (F + wallTop) / 2;
+    const plane = (inset, list, tileU) => {
+      const g = new THREE.PlaneGeometry(len, hgt, 1, 1);
+      if (tileU) { const uv = g.attributes.uv.array; for (let i = 0; i < uv.length; i += 2) uv[i] *= len / 1.2; }
+      if (face === 'E') { g.rotateY(Math.PI / 2); g.translate(X1 - inset, ym, mid); }
+      if (face === 'N') { g.rotateY(Math.PI); g.translate(mid, ym, Z0 + inset); }
+      if (face === 'S') { g.translate(mid, ym, Z1 - inset); }
+      list.push({ geometry: g });
+    };
+    plane(cInset, glazeParts, true);
+    plane(gInset, glassParts, false);
     const fb = (b0, b1, y0, y1) => {           // frame bar along the face between b0..b1 (run coordinate)
       const d0 = -gInset - 0.04, d1 = -gInset + 0.05;
       if (face === 'E') box('frame', X1 + d0, y0, b0, X1 + d1, y1, b1);
@@ -222,7 +237,8 @@ export async function build(ctx) {
   glazeRun('E', Z0 + pier, Z1 - pier, 4);
   glazeRun('N', X0 + pier, X1 - pier, 4);
   glazeRun('S', sGlass[0], sGlass[1], 3);
-  finish('Clubhouse/Glazing', util.mergeParts(glazeParts), mats['amenities.glazing'], { cast: false });
+  finish('Clubhouse/Curtains', util.mergeParts(glazeParts), mats['amenities.glazing'], { cast: false });
+  finish('Clubhouse/Glass', util.mergeParts(glassParts), mats['amenities.glass'], { cast: false, receive: false }).renderOrder = 2;
 
   // Two walnut doors (south face, west half) with trim architraves and steel pulls.
   const doorH = 2.3, doorW = 0.92;
@@ -255,21 +271,32 @@ export async function build(ctx) {
   }
   ring('trim', 0.18, 5.40, 5.48);
   ring('trim', 0.30, 5.48, 5.60);
-  // stepped attic (ref E): a low wide tier with a moulded cap, then a taller narrower tier with a strong cornice
-  ring('trim', 0.08, 5.60, 5.68, 4.4);
-  ring('plaster', 0, 5.68, 6.25, 4.4);
-  ring('trim', 0.12, 6.25, 6.35, 4.4);
-  ring('trim', 0.25, 6.35, 6.47, 4.4);
-  ring('plaster', 0, 6.47, 7.15, 3.1);
-  ring('trim', 0.10, 7.15, 7.25, 3.1);
-  ring('trim', 0.22, 7.25, 7.33, 3.1);
-  ring('trim', 0.34, 7.33, 7.45, 3.1);
+  // stepped attic (ref E): two clearly receding tiers, each 0.6 m of plain body under a projecting moulded cornice.
+  // Tier 1 = 60 % of the clubhouse width, tier 2 = 65 % of tier 1.
+  const A1 = 0.6 * W, A2 = 0.65 * A1;
+  ring('trim', 0.06, 5.60, 5.66, A1);
+  ring('plaster', 0, 5.66, 6.26, A1);
+  ring('trim', 0.08, 6.26, 6.34, A1);
+  ring('trim', 0.20, 6.34, 6.42, A1);
+  ring('trim', 0.34, 6.42, 6.54, A1);
+  ring('trim', 0.06, 6.54, 6.60, A2);
+  ring('plaster', 0, 6.60, 7.20, A2);
+  ring('trim', 0.08, 7.20, 7.28, A2);
+  ring('trim', 0.18, 7.28, 7.36, A2);
+  ring('trim', 0.30, 7.36, 7.48, A2);
 
   // "CLUB HOUSE" gold letters on a raised plate on the east entablature frieze.
+  // Letters ~20 % larger than before (cap height ~0.36 m), 6 stacked alpha-cut layers over 2 cm; back layers darker
+  // via vertex colour so the relief reads as lit faces over shaded returns.
   const plateX = X1 + 0.40;
-  box('trim', plateX, 3.98, cz - 2.95, plateX + 0.03, 4.38, cz + 2.95);
-  { const g = new THREE.PlaneGeometry(5.6, 0.52); g.rotateY(Math.PI / 2); g.translate(plateX + 0.036, 4.175, cz);
-    finish('Clubhouse/Letters', g, mats['amenities.letters'], { cast: false, receive: false }); }
+  box('trim', plateX, 3.96, cz - 2.95, plateX + 0.03, 4.40, cz + 2.95);
+  { const layers = [], NL = 6;
+    for (let i = 0; i < NL; i++) {
+      const t = i / (NL - 1), g = new THREE.PlaneGeometry(5.6, 0.4375); g.rotateY(Math.PI / 2); g.translate(plateX + 0.032 + 0.02 * t, 4.18, cz);
+      const k = 0.45 + 0.55 * t * t, c = new Float32Array(g.attributes.position.count * 3).fill(k);
+      g.setAttribute('color', new THREE.BufferAttribute(c, 3)); layers.push({ geometry: g });
+    }
+    finish('Clubhouse/Letters', util.mergeParts(layers), mats['amenities.letters'], { cast: false, receive: false }); }
 
   // Grey concrete raised planters (thin walls + soil).
   for (const p of L.planters) {
@@ -281,7 +308,7 @@ export async function build(ctx) {
     box('amenities.soil', p.x[0] + t, 0, p.z[0] + t, p.x[1] - t, p.soil, p.z[1] - t);
     place('planter', 'Clubhouse/Planter_' + p.id, new THREE.Box3(new THREE.Vector3(p.x[0], 0, p.z[0]), new THREE.Vector3(p.x[1], p.h, p.z[1])), 0);
   }
-  place('building', 'Clubhouse', new THREE.Box3(new THREE.Vector3(L.plinth.x[0], 0, L.plinth.z[0]), new THREE.Vector3(L.plinth.x[1], 7.45, L.plinth.z[1])), 0);
+  place('building', 'Clubhouse', new THREE.Box3(new THREE.Vector3(L.plinth.x[0], 0, L.plinth.z[0]), new THREE.Vector3(L.plinth.x[1], 7.48, L.plinth.z[1])), 0);
 
   /* =============================== PLAZA =============================== */
   // Tree-ring planter (concrete ring wall, lawn disc inside; hedge ring + tree come from vegetation).
@@ -365,7 +392,7 @@ export async function build(ctx) {
 
   /* =============================== merge per material =============================== */
   const spec = {   // key -> [mesh name, uvTile, cast]
-    coping: ['Pool/Coping', 1, false], mosaic: ['Pool/MosaicSides', 1, false], 'amenities.poolTile': ['Pool/Basin', 1, false],
+    coping: ['Pool/Coping', 1, false], 'amenities.copingBeige': ['Pool/KidsCoping', 1, false], mosaic: ['Pool/MosaicSides', 1, false], 'amenities.poolTile': ['Pool/Basin', 1, false],
     steel: ['Steel', null, false], plaster: ['Plaster', 2, true], trim: ['Trim', 2, true], concrete: ['Concrete', 2, true],
     frame: ['Clubhouse/Frames', null, false], walnut: ['Clubhouse/Doors', 1, false], 'amenities.soil': ['Soil', 1, false],
     lawn: ['Plaza/Lawn', 8, false], lawnStriped: ['Plaza/LawnStriped', 8, false], kerb: ['Kerb', 1, false],
@@ -392,10 +419,10 @@ export async function build(ctx) {
   function onTimeOfDay(k, s) {
     const n = s.night || 0;
     mTile.emissive.copy(dayCyan).lerp(nightCyan, n);
-    mTile.emissiveIntensity = 0.16 * (1 - n) + 2.4 * n;
+    mTile.emissiveIntensity = 0.5 * (1 - n) + 2.4 * n;
     mWater.emissiveIntensity = 0.9 * n;
     mGlaze.emissive.copy(glazeDay).lerp(glazeNight, n);
-    mGlaze.emissiveIntensity = 0.32 * (1 - n) + 1.5 * n;
+    mGlaze.emissiveIntensity = 0.1 * (1 - n) + 1.5 * n;
   }
   update({ t: ctx.params?.t || 0 });
 

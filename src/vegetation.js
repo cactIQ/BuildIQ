@@ -1,8 +1,7 @@
-// Vegetation module: palms (2 prototypes, 2 InstancedMeshes each), shrubs + flowering bushes + topiary, clipped
-// hedges, broadleaf trees (displaced icosphere clumps with vertex-colour AO, no alpha cards) for the context tree belts
-// and a few plaza trees, plus palm contact-shadow decals. No wind in v1. All placement uses ctx.rng streams.
+// Vegetation module: palms (2 prototypes, 2 InstancedMeshes each), leaf-card shrubs + bougainvillea, clipped hedges
+// with leafy edge cards, broadleaf trees (3 belt variants + plaza tree) built as instanced clusters of alpha-cut leaf
+// cards around small opaque cores, plus palm contact-shadow decals. No wind in v1. All placement uses ctx.rng streams.
 import * as THREE from 'three';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { amenityLayout } from './amenities.js';
 
 /* ------------------------------ deterministic value noise (geometry displacement) ------------------------------ */
@@ -176,71 +175,162 @@ export async function build(ctx) {
     group.add(util.instanced(P.crown, mFrond, mats, { ids, colors: tintF, name: `Palms/${P.name}/Fronds`, castShadow: false, receiveShadow: true }));
   }
 
-  /* =============================== foliage clumps (shrubs, hedges, trees) =============================== */
-  const greens = ['#4C7A30', '#3F6B2A', '#5E8A3A', '#6F9442', '#46743A'].map((h) => new THREE.Color(h));
-  function colourise(g, base, { flower = null, seed = 0, aoMin = 0.42 } = {}) {
-    g.computeBoundingBox();
-    const bb = g.boundingBox, pos = g.attributes.position, nor = g.attributes.normal, n = pos.count, col = new Float32Array(n * 3);
-    const hy = Math.max(1e-3, bb.max.y - bb.min.y), c = new THREE.Color();
-    for (let i = 0; i < n; i++) {
-      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), ny = nor.getY(i);
-      const h = (y - bb.min.y) / hy;
-      let ao = (aoMin + (1 - aoMin) * Math.pow(h, 0.7)) * (0.82 + 0.18 * Math.max(0, ny));
-      const nz = vnoise(x * 1.7 + seed, y * 1.7, z * 1.7);
-      c.copy(base).multiplyScalar(ao * (0.85 + 0.3 * nz));
-      if (flower && vnoise(x * 4.3 + 7, y * 4.3, z * 4.3 + seed) > 0.62 && ny > -0.2 && h > 0.3) c.copy(flower).multiplyScalar(0.7 + 0.3 * h);
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    return g;
-  }
-  /** Displaced icosphere clump. blobs: [[x,y,z,r]], bottom clamp at y = floor (then moved so the base sits on 0). */
-  function clump(blobs, detail, seed, { floor = null, amp = 0.22, freq = 1.4, base = greens[0], flower = null, uvTile = 0.9 } = {}) {
-    const list = [];
-    for (const [bx, by, bz, br] of blobs) {
-      let g = new THREE.IcosahedronGeometry(1, detail);
-      g.deleteAttribute('normal'); g.deleteAttribute('uv');
-      g = mergeVertices(g);
-      const p = g.attributes.position;
-      for (let i = 0; i < p.count; i++) {
-        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-        const d = br * (1 + amp * 2 * (vnoise(x * freq + seed + bx, y * freq + by, z * freq + bz) - 0.5));
-        let yy = by + y * d;
-        if (floor !== null && yy < floor) yy = floor;
-        p.setXYZ(i, bx + x * d, yy, bz + z * d);
+  /* =============================== leaf-card foliage (shrubs, hedges, trees) =============================== */
+  // Every canopy = instanced clusters of alpha-cut leaf cards (leafAtlas quadrants A/B/C) around a small opaque core
+  // (quadrant D) that stops see-through. One material for all foliage. Card normals are bent outward from the canopy
+  // centre so the cluster shades as a volume; vertex colours carry interior AO and a lighter yellow-green sun side.
+  const REG = { A: [0, 0], B: [0.5, 0], C: [0, 0.5], D: [0.5, 0.5] };
+  const SUN = new V3(0.62, 0.5, 0.6).normalize();               // between the day (SSE) and golden (E) sun azimuths
+  const UP = new V3(0, 1, 0);
+  const cardK = low ? 0.6 : 1;
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+  /** Card cluster. blobs: [[x,y,z,r]]; layers: [{ n, size:[a,b], reg, shell:[f0,f1], up, yMin }]; core: { detail, scale }. */
+  function cardCluster(blobs, layers, { seed, core = { detail: 0, scale: 0.72 }, squashY = 1, aoMin = 0.42, ground = false }) {
+    const r = rng('cards-' + seed);
+    const pos = [], nor = [], uv = [], colr = [], idx = [];
+    const C = new V3(), bbMin = new V3(1e9, 1e9, 1e9), bbMax = new V3(-1e9, -1e9, -1e9);
+    let wsum = 0;
+    for (const [x, y, z, br] of blobs) { const w = br ** 3; C.add(new V3(x, y, z).multiplyScalar(w)); wsum += w; bbMin.min(new V3(x - br, y - br * squashY, z - br)); bbMax.max(new V3(x + br, y + br * squashY, z + br)); }
+    C.multiplyScalar(1 / wsum);
+    const spanY = Math.max(0.2, bbMax.y - bbMin.y);
+    const bent = (p, n, k) => {                                  // canopy-volume normal blended with the card normal
+      const d = p.clone().sub(C); d.y /= Math.max(0.5, squashY); d.normalize().addScaledVector(UP, 0.35).normalize();
+      return d.multiplyScalar(1 - k).addScaledVector(n, k).normalize();
+    };
+    const shade = (p, depth) => {                                // AO (interior + low) and sun-side warmth -> [r,g,b]
+      const h = (p.y - bbMin.y) / spanY;
+      const ao = aoMin + (1 - aoMin) * sm(0.15, 1.0, depth) * (0.55 + 0.45 * Math.min(1, Math.max(0, h)));
+      const s = Math.max(0, p.clone().sub(C).normalize().dot(SUN));
+      return [ao * (1 + 0.16 * s), ao * (1 + 0.13 * s), ao * (1 - 0.08 * s)];
+    };
+    const nearest = (p) => {                                     // normalised depth inside the closest blob
+      let best = 9;
+      for (const [x, y, z, br] of blobs) { const d = Math.hypot(p.x - x, (p.y - y) / squashY, p.z - z) / br; if (d < best) best = d; }
+      return best;
+    };
+    const pickBlob = () => {
+      let t = r() * wsum;
+      for (const b of blobs) { t -= b[3] ** 3; if (t <= 0) return b; }
+      return blobs[blobs.length - 1];
+    };
+    const randDir = () => { const u = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - u * u); return new V3(s * Math.cos(a), u, s * Math.sin(a)); };
+    // cards
+    for (const L of layers) {
+      const n = Math.max(3, Math.round(L.n * cardK)), [u0, v0] = REG[L.reg], e = 0.006;
+      for (let i = 0; i < n; i++) {
+        const [bx, by, bz, br] = pickBlob();
+        let d = randDir();
+        if (L.yMin !== undefined && d.y < L.yMin) d.y = L.yMin + r() * (1 - L.yMin) * 0.5;
+        d.normalize();
+        const f = L.shell[0] + (L.shell[1] - L.shell[0]) * Math.sqrt(r());
+        const p = new V3(bx + d.x * br * f, by + d.y * br * f * squashY, bz + d.z * br * f);
+        const nC = d.clone().multiplyScalar(0.65).add(randDir().multiplyScalar(0.75)).addScaledVector(UP, L.up ?? 0.3).normalize();
+        const t0 = Math.abs(nC.y) < 0.95 ? new V3().crossVectors(UP, nC).normalize() : new V3(1, 0, 0);
+        const b0 = new V3().crossVectors(nC, t0), a = r() * Math.PI * 2;
+        const T1 = t0.clone().multiplyScalar(Math.cos(a)).addScaledVector(b0, Math.sin(a)), B1 = new V3().crossVectors(nC, T1);
+        const s = (L.size[0] + (L.size[1] - L.size[0]) * r()) / 2;
+        const base = pos.length / 3;
+        for (const [cu, cv] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+          const q = p.clone().addScaledVector(T1, (cu * 2 - 1) * s).addScaledVector(B1, (cv * 2 - 1) * s);
+          const nn = bent(q, nC, 0.3), c = shade(q, nearest(q));
+          pos.push(q.x, q.y, q.z); nor.push(nn.x, nn.y, nn.z); colr.push(...c);
+          uv.push(u0 + e + cu * (0.5 - 2 * e), v0 + e + cv * (0.5 - 2 * e));
+        }
+        idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
       }
-      g.computeVertexNormals();
-      list.push({ geometry: g });
     }
-    const merged = util.mergeParts(list);
-    if (floor !== null) { merged.translate(0, -floor, 0); merged.computeBoundingBox(); merged.computeBoundingSphere(); }
-    util.worldUV(merged, uvTile);
-    return colourise(merged, base, { flower, seed });
+    const parts = [];
+    { const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3));
+      g.setIndex(idx); parts.push({ geometry: g }); }
+    // opaque cores (quadrant D), darker: they are the shadowed inside of the crown
+    if (core) for (const [bx, by, bz, br] of blobs) {
+      const g = new THREE.IcosahedronGeometry(1, core.detail), p = g.attributes.position, n = p.count;
+      const nn = new Float32Array(n * 3), uu = new Float32Array(n * 2), cc = new Float32Array(n * 3);
+      const fa = new V3(), fb = new V3(), fc = new V3(), fn = new V3();
+      for (let i = 0; i < n; i++) {
+        if (i % 3 === 0) {                                     // per-face dominant-axis projection (no stretching)
+          fa.fromBufferAttribute(p, i); fb.fromBufferAttribute(p, i + 1); fc.fromBufferAttribute(p, i + 2);
+          fn.crossVectors(fb.sub(fa), fc.sub(fa)); fn.set(Math.abs(fn.x), Math.abs(fn.y), Math.abs(fn.z));
+        }
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = br * core.scale * (0.85 + 0.3 * vnoise(x * 1.7 + seed, y * 1.7 + bx, z * 1.7 + bz));
+        const q = new V3(bx + x * k, by + y * k * squashY, bz + z * k);
+        p.setXYZ(i, q.x, q.y, q.z);
+        const o = bent(q, new V3(x, y, z), 0.5); nn.set([o.x, o.y, o.z], i * 3);
+        const [pu, pv] = fn.y >= fn.x && fn.y >= fn.z ? [x, z] : fn.x >= fn.z ? [z, y] : [x, y];
+        uu.set([0.51 + 0.48 * (0.5 + 0.5 * pu), 0.51 + 0.48 * (0.5 + 0.5 * pv)], i * 2);
+        const c = shade(q, 0.5); cc.set([c[0] * 0.68, c[1] * 0.68, c[2] * 0.68], i * 3);
+      }
+      g.setAttribute('normal', new THREE.BufferAttribute(nn, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uu, 2)); g.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+      parts.push({ geometry: g });
+    }
+    const merged = util.mergeParts(parts);
+    if (ground) { merged.translate(0, -merged.boundingBox.min.y, 0); merged.computeBoundingBox(); merged.computeBoundingSphere(); }
+    return merged;
   }
 
-  // prototypes
-  const shrubGeo = clump([[0, 0.5, 0, 0.52], [0.36, 0.36, 0.12, 0.38], [-0.3, 0.36, -0.14, 0.4], [0.05, 0.38, -0.36, 0.34], [-0.08, 0.72, 0.12, 0.32]], 1, 3, { floor: 0.02, base: new THREE.Color('#5C8A36'), amp: 0.3, freq: 2.6, uvTile: 0.5 });
-  const flowerGeo = clump([[0, 0.5, 0, 0.55], [0.4, 0.4, 0.15, 0.4], [-0.35, 0.38, -0.1, 0.42], [0.1, 0.8, -0.1, 0.34]], 1, 9, { floor: 0.02, base: new THREE.Color('#4F7E30'), amp: 0.32, freq: 2.4, uvTile: 0.5, flower: new THREE.Color('#D4568F') });
-  // hedge segment: 2 m long, 1 m tall, 0.7 m wide (subdivided box, noisy, rounded top edges)
+  /** Per-plant tint as a multiplier on the textured albedo: hue +-dh, value +-dv around a reference leaf green. */
+  const REF_GREEN = new THREE.Color('#6A8C4E');
+  const tintOf = (r, dh = 0.028, dv = 0.15, warm = 0) => {
+    const c = REF_GREEN.clone().offsetHSL(r.range(-dh, dh) + warm, r.range(-0.06, 0.04), 0).multiplyScalar(1 + r.range(-dv, dv));
+    return new THREE.Color(c.r / REF_GREEN.r, c.g / REF_GREEN.g, c.b / REF_GREEN.b);
+  };
+
+  // prototypes: round leafy shrub, bougainvillea (leaf cards + magenta bract cards on the sunny outside)
+  const shrubBlobs = [[0, 0.5, 0, 0.52], [0.36, 0.38, 0.12, 0.4], [-0.3, 0.38, -0.14, 0.42], [0.05, 0.4, -0.36, 0.36], [-0.08, 0.72, 0.12, 0.34]];
+  const shrubGeo = cardCluster(shrubBlobs, [{ n: 40, size: [0.38, 0.6], reg: 'B', shell: [0.6, 1.08], up: 0.35 }], { seed: 3, ground: true, aoMin: 0.5, core: { detail: 0, scale: 0.8 } });
+  const flowerGeo = cardCluster([[0, 0.55, 0, 0.56], [0.42, 0.42, 0.15, 0.42], [-0.36, 0.42, -0.1, 0.44], [0.1, 0.85, -0.1, 0.38]], [
+    { n: 20, size: [0.42, 0.65], reg: 'B', shell: [0.55, 1.0], up: 0.3 },
+    { n: 26, size: [0.45, 0.7], reg: 'C', shell: [0.8, 1.12], up: 0.5, yMin: -0.25 },
+  ], { seed: 9, ground: true, aoMin: 0.5, core: { detail: 0, scale: 0.8 } });
+  // hedge segment: 2 m long, 1 m tall, 0.7 m wide clipped box (leaf-mass texture) + leafy cards breaking the edges
   const hedgeGeo = (() => {
-    let g = new THREE.BoxGeometry(2, 1, 0.7, low ? 4 : 8, 3, 2);
-    g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g);
-    const p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) {
+    const g0 = new THREE.BoxGeometry(2, 1, 0.7, low ? 3 : 6, 3, 2), p = g0.attributes.position, uvA = g0.attributes.uv;
+    const n = p.count, cc = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
       let x = p.getX(i), y = p.getY(i) + 0.5, z = p.getZ(i);
-      const n = (vnoise(x * 4.1, y * 4.1, z * 4.1) - 0.5) * 0.12;
-      const zr = Math.abs(z) / 0.35;
-      if (y > 0.75) z *= 1 - 0.18 * ((y - 0.75) / 0.25);          // rounded top shoulders
-      if (y > 0.98) y -= 0.05 * zr;
-      if (y > 0.04) { z += Math.sign(z) * n; y += n * 0.6; x += (Math.abs(x) > 0.99 ? Math.sign(x) * n * 0.5 : 0); }
+      const nz = (vnoise(x * 4.1, y * 4.1, z * 4.1) - 0.5) * 0.1;
+      if (y > 0.75) z *= 1 - 0.16 * ((y - 0.75) / 0.25);              // rounded top shoulders
+      if (y > 0.04) { z += Math.sign(z) * nz; y += nz * 0.5; }
       p.setXYZ(i, x, Math.max(0, y), z);
+      uvA.setXY(i, 0.51 + 0.48 * uvA.getX(i), 0.51 + 0.48 * uvA.getY(i));
+      const ao = 0.55 + 0.45 * sm(0, 1, y);
+      cc.set([ao * 1.02, ao, ao * 0.96], i * 3);
     }
-    g.computeVertexNormals(); g = g.toNonIndexed(); util.worldUV(g, 0.6);
-    return colourise(g, new THREE.Color('#3F6B2A'), { seed: 5, aoMin: 0.5 });
+    g0.setAttribute('color', new THREE.BufferAttribute(cc, 3)); g0.computeVertexNormals();
+    const r = rng('hedge-cards'), pos = [], nor = [], uv = [], colr = [], idx = [];
+    const nc = low ? 8 : 14;
+    for (let i = 0; i < nc; i++) {
+      const top = r() < 0.45, side = r() < 0.5 ? 1 : -1;
+      const x = r.range(-0.95, 0.95), y = top ? r.range(0.92, 1.02) : r.range(0.35, 0.95), z = top ? r.range(-0.28, 0.28) : side * r.range(0.33, 0.4);
+      const sn = top ? new V3(r.range(-0.3, 0.3), 1, z * 1.5).normalize() : new V3(r.range(-0.3, 0.3), r.range(0, 0.6), side).normalize();
+      const nC = sn.clone().add(new V3(r.range(-0.6, 0.6), r.range(-0.4, 0.6), r.range(-0.6, 0.6))).normalize();
+      const t0 = Math.abs(nC.y) < 0.95 ? new V3().crossVectors(UP, nC).normalize() : new V3(1, 0, 0), b0 = new V3().crossVectors(nC, t0);
+      const s = r.range(0.2, 0.3), base = pos.length / 3, ao = 0.75 + 0.25 * y;
+      for (const [cu, cv] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+        const q = new V3(x, y, z).addScaledVector(t0, (cu * 2 - 1) * s).addScaledVector(b0, (cv * 2 - 1) * s);
+        q.y = Math.max(0.02, q.y);
+        pos.push(q.x, q.y, q.z); nor.push(sn.x, sn.y, sn.z); colr.push(ao * 1.04, ao, ao * 0.94);
+        uv.push(0.506 + cu * 0.488, 0.006 + cv * 0.488);
+      }
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); cg.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    cg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); cg.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3)); cg.setIndex(idx);
+    return util.mergeParts([{ geometry: g0 }, { geometry: cg }]);
   })();
-  // broadleaf tree canopies (belts: detail 1; plaza: detail 2) + trunk
-  const beltGeo = clump([[0, 3.9, 0, 2.4], [1.7, 3.3, 0.7, 1.9], [-1.4, 3.4, -1.0, 2.0]], 1, 21, { base: new THREE.Color('#3D6E27'), amp: 0.3, freq: 0.9, uvTile: 1.2 });
-  const nearGeo = clump([[0, 4.6, 0, 2.0], [1.5, 4.0, 0.7, 1.6], [-1.3, 4.1, -0.8, 1.7], [0.2, 5.6, -0.4, 1.5]], low ? 1 : 2, 33, { base: new THREE.Color('#4F7A35'), amp: 0.22, freq: 1.3, uvTile: 0.9 });
+  // broadleaf tree canopies: three belt variants (round, tall oval, spreading) + a fuller plaza tree; trunk
+  const beltLayers = (n) => [{ n, size: [0.95, 1.5], reg: 'A', shell: [0.55, 1.05], up: 0.3 }];
+  const treeProtos = [
+    cardCluster([[0, 3.9, 0, 2.3], [1.6, 3.4, 0.7, 1.8], [-1.4, 3.5, -0.9, 1.9]], beltLayers(76), { seed: 21, core: { detail: 0, scale: 0.8 } }),
+    cardCluster([[0, 4.3, 0, 1.8], [0.3, 5.5, 0.2, 1.45], [-0.5, 3.4, 0.3, 1.55], [0.6, 3.6, -0.5, 1.4]], beltLayers(72), { seed: 22, core: { detail: 0, scale: 0.8 } }),
+    cardCluster([[0, 3.9, 0, 2.0], [2.0, 3.6, 0.4, 1.6], [-1.9, 3.7, -0.3, 1.7], [0.3, 3.5, 1.9, 1.5], [-0.2, 3.8, -1.9, 1.5]], beltLayers(84), { seed: 23, squashY: 0.72, core: { detail: 0, scale: 0.8 } }),
+  ];
+  const nearGeo = cardCluster([[0, 4.6, 0, 2.0], [1.5, 4.0, 0.7, 1.6], [-1.3, 4.1, -0.8, 1.7], [0.2, 5.6, -0.4, 1.5], [-0.3, 3.9, 1.3, 1.4]],
+    [{ n: 150, size: [0.8, 1.25], reg: 'A', shell: [0.5, 1.05], up: 0.3 }], { seed: 33, core: { detail: low ? 0 : 1, scale: 0.78 } });
   const trunkG = (() => { const g = new THREE.CylinderGeometry(0.11, 0.2, 3.4, 6, 1, true); g.translate(0, 1.7, 0); return g; })();
 
   const shrubs = { s: [], f: [] };   // {m, c, id, y}
@@ -248,13 +338,13 @@ export async function build(ctx) {
   const pushShrub = (kind, x, z, y, scale, tint = null) => {
     const sc = typeof scale === 'number' ? [scale, scale * rs.range(0.85, 1.05), scale] : scale;
     const m = util.mat([x, y, z], rs.range(0, Math.PI * 2), sc);
-    const t = 1 + rs.range(-0.08, 0.08), base = tint || new THREE.Color(1, 1, 1);
+    const base = tint || (kind === 'f' ? tintOf(rs, 0.01, 0.1) : tintOf(rs));
     const id = `Shrub_${String(shrubs.s.length + shrubs.f.length + 1).padStart(3, '0')}`;
-    shrubs[kind].push({ m, c: base.clone().multiplyScalar(t), id });
+    shrubs[kind].push({ m, c: base, id });
     const g = kind === 's' ? shrubGeo : flowerGeo; g.computeBoundingBox();
     registry.place({ kind: 'shrub', id, bbox: g.boundingBox.clone().applyMatrix4(m), supportY: y, module: MOD });
   };
-  const hueTint = () => rs.pick([new THREE.Color(1, 1, 1), new THREE.Color(1.12, 1.08, 0.85), new THREE.Color(0.85, 0.95, 0.9), new THREE.Color(1.05, 1.1, 0.8)]);
+  const hueTint = () => tintOf(rs, 0.035, 0.15);
 
   // clubhouse planters: alternating topiary balls and bougainvillea
   for (const p of L.planters) {
@@ -265,7 +355,7 @@ export async function build(ctx) {
       const a = a0 + 0.6 + (i * (a1 - a0 - 1.2)) / Math.max(1, n - 1);
       const [x, z] = alongX ? [a, mid] : [mid, a];
       if (i % 3 === 1) pushShrub('f', x, z, p.soil, 0.75);
-      else pushShrub('s', x, z, p.soil, i % 3 === 0 ? 0.62 : 0.5, new THREE.Color(0.85, 0.95, 0.85));
+      else pushShrub('s', x, z, p.soil, i % 3 === 0 ? 0.62 : 0.5, tintOf(rs, 0.015, 0.06, -0.01));
     }
   }
   // round shrubs on the ground around the clubhouse forecourt (ref E) and at the pool deck corners
@@ -310,7 +400,7 @@ export async function build(ctx) {
         const t = (k + 0.5) / n, x = a[0] + dx * t, z = a[1] + dz * t;
         const m = util.mat([x, y, z], -Math.atan2(dz, dx), [(len / n / 2) * 1.08, h * rs.range(0.95, 1.05), w / 0.7]);
         hedge.m.push(m); hedge.ids.push(id);
-        const tt = 1 + rs.range(-0.06, 0.06); hedge.c.push(new THREE.Color(tt, tt, tt));
+        hedge.c.push(tintOf(rs, 0.012, 0.06));
         bb.union(hedgeGeo.boundingBox.clone().applyMatrix4(m));
       }
     }
@@ -337,13 +427,12 @@ export async function build(ctx) {
 
   /* ------------------------------ trees: plaza + context belts ------------------------------ */
   const rt = rng('trees');
-  const near = { m: [], c: [], ids: [] }, belt = { m: [], c: [], ids: [] }, trunks = { m: [], c: [] };
+  const near = { m: [], c: [], ids: [] }, belts = treeProtos.map(() => ({ m: [], c: [], ids: [] })), trunks = { m: [], c: [] };
   const addTree = (bucket, geo, x, z, y, s, id) => {
-    const rot = rt.range(0, Math.PI * 2), sc = [s * rt.range(0.9, 1.1), s * rt.range(0.85, 1.15), s * rt.range(0.9, 1.1)];
+    const rot = rt.range(0, Math.PI * 2), sc = [s * rt.range(0.92, 1.08), s * rt.range(0.88, 1.12), s * rt.range(0.92, 1.08)];
     const m = util.mat([x, y, z], rot, sc);
     bucket.m.push(m); bucket.ids.push(id);
-    const t = 1 + rt.range(-0.08, 0.08), hue = rt.range(-0.06, 0.06);
-    bucket.c.push(new THREE.Color(t * (1 + hue), t, t * (1 - hue * 1.5)));
+    bucket.c.push(tintOf(rt, 0.028, 0.15));
     trunks.m.push(util.mat([x, y, z], rot, [s, sc[1], s])); trunks.c.push(new THREE.Color(0.8, 0.75, 0.7));
     geo.computeBoundingBox();
     const bb = geo.boundingBox.clone().union(trunkG.boundingBox || (trunkG.computeBoundingBox(), trunkG.boundingBox)).applyMatrix4(m);
@@ -352,7 +441,7 @@ export async function build(ctx) {
   let treeN = 0;
   const tid = () => `Tree_${String(++treeN).padStart(3, '0')}`;
   addTree(near, nearGeo, L.ring.c[0], L.ring.c[1], L.ring.soil, 1.0, tid());
-  for (const [x, z] of [[28.5, -12], [53.5, -12], [53.5, 15], [28.8, 17.5], [-50.5, 26]]) if (!isBlocked(x, z)) addTree(near, nearGeo, x, z, 0, rt.range(0.85, 1.05), tid());
+  for (const [x, z] of [[28.5, -12], [53.5, -12], [53.5, 15], [28.8, 17.5], [-50.5, 26]]) if (!isBlocked(x, z)) addTree(near, nearGeo, x, z, 0, rt.range(0.8, 1.1), tid());
 
   const roads = [[39.5, 57.5], [-55.5, -37.5]];
   const ctxBlocks = SPEC.site.context.buildings.map(([x, z, w, d]) => pad(util.rectOf([x, z], w, d), 3));
@@ -362,10 +451,10 @@ export async function build(ctx) {
     const area = (b.x[1] - b.x[0]) * (b.z[1] - b.z[0]);
     const count = Math.round(area * b.density * (low ? 0.55 : 0.95));
     const pts = util.scatter(rng('belt-' + bi), b, { count, minDist: 3.6, reject: beltReject, maxTries: 12 });
-    for (const [x, z] of pts) addTree(belt, beltGeo, x, z, 0, rt.range(0.95, 1.6), tid());
+    for (const [x, z] of pts) { const v = rt.int(0, treeProtos.length - 1); addTree(belts[v], treeProtos[v], x, z, 0, 1.25 * rt.range(0.75, 1.25), tid()); }
   }
   if (near.m.length) group.add(util.instanced(nearGeo, mFoliage, near.m, { ids: near.ids, colors: near.c, name: 'Trees/Plaza', castShadow: true }));
-  if (belt.m.length) group.add(util.instanced(beltGeo, mFoliage, belt.m, { ids: belt.ids, colors: belt.c, name: 'Trees/Belts', castShadow: false }));
+  belts.forEach((b, i) => { if (b.m.length) group.add(util.instanced(treeProtos[i], mFoliage, b.m, { ids: b.ids, colors: b.c, name: `Trees/Belts_${'ABC'[i]}`, castShadow: false })); });
   group.add(util.instanced(trunkG, mBark, trunks.m, { colors: trunks.c, name: 'Trees/Trunks', castShadow: false }));
 
   /* ------------------------------ palm contact shadows ------------------------------ */

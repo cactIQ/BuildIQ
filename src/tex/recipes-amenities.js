@@ -1,7 +1,7 @@
 // Texture recipes owned by the amenities module (also used by vegetation). Same contract as recipes-base.js:
 // (params) => { w, h, albedo, normal?, orm?, alpha?, emissive? } as RGBA8 Uint8ClampedArray, tiling, 1 UV unit per image.
 // Row 0 of an image = v 0 (flipY = false).
-import { makeNoise, img, put, heightToNormal, packORM, rgb, mix, clamp01, smooth } from './noise.js';
+import { makeNoise, mulberry32, img, put, heightToNormal, packORM, rgb, mix, clamp01, smooth } from './noise.js';
 
 const hash = (a, b = 0, c = 0) => { const s = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return s - Math.floor(s); };
 
@@ -92,9 +92,9 @@ function curtain({ size = 512, seed = 47, transomV = 0.78 } = {}) {
     let r, g, b, er, eg, eb;
     if (v < transomV) {
       const wob = (n.fbm(u, v * 0.25, { period: 4, octaves: 2 }) - 0.5) * 0.3;
-      const fold = 0.5 + 0.5 * Math.sin(Math.PI * 2 * (u * 9 + wob));
+      const fold = 0.5 + 0.5 * Math.sin(Math.PI * 2 * (u * 4 + wob));
       const streak = n.noise(u, v * 0.1, 64) - 0.5;
-      const k = 0.86 + 0.12 * fold + streak * 0.04 - (v < 0.03 ? 0.05 : 0);
+      const k = 0.9 + 0.07 * fold + streak * 0.03 - (v < 0.03 ? 0.05 : 0);
       r = 0.95 * k; g = 0.94 * k; b = 0.91 * k;
       const e = 0.55 + 0.45 * fold;                       // lit-from-inside glow (folds thinner = brighter)
       er = e; eg = e * 0.8; eb = e * 0.55;
@@ -151,26 +151,98 @@ function palmBark({ w = 256, h = 512, seed = 59, rings = 6, color = '#7C7266' } 
   return { w, h, albedo: al, normal: heightToNormal(hgt, w, h, 3), orm: packORM(w, h, 1, rough, 0) };
 }
 
-/** Leafy clump texture (near-neutral luminance; the hue comes from vertex/instance colours). */
-function foliage({ size = 512, seed = 61, cells = 22 } = {}) {
-  const w = size, h = size, n = makeNoise(seed), al = img(w, h), hgt = new Float32Array(w * h), ao = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const u = x / w, v = y / h;
-    let best = 0, bestTone = 0.4;
-    for (const [c, s] of [[cells, 1], [Math.round(cells * 1.6), 2]]) {
-      const [f1, f2] = voronoi(u, v, c, seed + s);
-      const leaf = 1 - smooth(0.05, 0.45, f1) * 0.6 - (1 - smooth(0, 0.1, f2 - f1)) * 0.35;
-      const tone = 0.62 + 0.38 * hash(Math.floor(u * c), Math.floor(v * c), seed + s);
-      if (leaf * tone > best) { best = leaf * tone; bestTone = tone; }
+/** Foliage card atlas (2x2 quadrants, each 0.5 UV): opaque colour map everywhere + a separate alpha map.
+ *  A (u0-.5, v0-.5): broadleaf sprig cluster (trees)   B (u.5-1, v0-.5): small-leaf cluster (shrubs, hedge edges)
+ *  C (u0-.5, v.5-1): bougainvillea (leaves + magenta bracts)   D (u.5-1, v.5-1): opaque leaf mass (canopy cores, hedge faces).
+ *  Leaf colours are real (desaturated mid greens); vertex/instance colours add AO, sun-side warmth and per-plant variation. */
+function leafAtlas({ size = 1024, seed = 67 } = {}) {
+  const w = size, h = size, Q = w / 2, R = mulberry32(seed);
+  const col = new Float32Array(w * h * 3), alpha = new Float32Array(w * h);
+  const greens = ['#5E8048', '#6A8C4E', '#557745', '#7A9758', '#4F703F', '#86A05C'].map(rgb);
+  const young = rgb('#A4B266'), twig = rgb('#5C4E3E');
+  const bg = rgb('#5A7A44');
+  for (let i = 0; i < w * h; i++) { col[i * 3] = bg[0]; col[i * 3 + 1] = bg[1]; col[i * 3 + 2] = bg[2]; }
+  const blend = (x, y, c, a, wrap) => {
+    if (wrap) { x = wrap.x0 + (((x - wrap.x0) % Q) + Q) % Q; y = wrap.y0 + (((y - wrap.y0) % Q) + Q) % Q; }
+    else if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const i = y * w + x;
+    col[i * 3] = mix(col[i * 3], c[0], a); col[i * 3 + 1] = mix(col[i * 3 + 1], c[1], a); col[i * 3 + 2] = mix(col[i * 3 + 2], c[2], a);
+    alpha[i] = Math.max(alpha[i], a);
+  };
+  /** Pointed elliptic leaf with a midrib and a light/shade split across it. */
+  function leaf(cx, cy, ang, L, W, base, tone, wrap = null, round = 0.8) {
+    const ca = Math.cos(ang), sa = Math.sin(ang), ext = Math.ceil(L / 2 + 2);
+    for (let y = Math.floor(cy - ext); y <= cy + ext; y++) for (let x = Math.floor(cx - ext); x <= cx + ext; x++) {
+      const dx = x + 0.5 - cx, dy = y + 0.5 - cy, s = dx * ca + dy * sa, t = -dx * sa + dy * ca;
+      const p = s / L + 0.5; if (p <= 0 || p >= 1) continue;
+      const hw = (W / 2) * Math.pow(Math.sin(Math.PI * Math.pow(p, 0.85)), round);
+      const cov = clamp01(hw - Math.abs(t) + 0.5); if (cov <= 0) continue;
+      const side = t > 0 ? 1.1 : 0.88, rib = Math.abs(t) < 0.7 ? 1.18 : 1, edge = 1 - 0.18 * smooth(0.55, 1, Math.abs(t) / Math.max(hw, 0.5));
+      const k = tone * side * rib * edge * (0.86 + 0.18 * p);
+      blend(x, y, [base[0] * k, base[1] * k, base[2] * k], cov, wrap);
     }
-    const g = n.fbm(u, v, { period: 8, octaves: 3 }) - 0.5;
-    const k = clamp01(0.35 + best * 0.75 + g * 0.15);
-    put(al, w, x, y, k * 0.96, k, k * 0.9);
-    hgt[y * w + x] = best;
-    ao[y * w + x] = clamp01(0.55 + best * 0.6);
-    void bestTone;
   }
-  return { w, h, albedo: al, normal: heightToNormal(hgt, w, h, 3), orm: packORM(w, h, ao, 0.8, 0) };
+  function line(x0, y0, x1, y1, th, c) {
+    const L = Math.hypot(x1 - x0, y1 - y0), n = Math.ceil(L);
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t, r = th * (1 - 0.6 * t);
+      for (let yy = Math.floor(y - r); yy <= y + r; yy++) for (let xx = Math.floor(x - r); xx <= x + r; xx++) {
+        const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y); if (d < r + 0.5) blend(xx, yy, c, clamp01(r + 0.5 - d), null);
+      }
+    }
+  }
+  const pickGreen = () => { const a = greens[Math.floor(R() * greens.length)], b = greens[Math.floor(R() * greens.length)], t = R(); return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]; };
+  /** Radial sprig cluster inside quadrant (qx, qy): twigs from the centre, leaves along them, back-to-front. */
+  function cluster(qx, qy, { n, Lmin, Lmax, aspect, twigs, rad = 0.44 }) {
+    const cx = qx + Q / 2, cy = qy + Q / 2, rMax = Q * rad, arms = [];
+    for (let i = 0; i < twigs; i++) {
+      const a = (i / twigs) * Math.PI * 2 + (R() - 0.5) * 0.6, len = rMax * (0.7 + 0.3 * R());
+      arms.push([a, len]);
+      line(cx, cy, cx + Math.cos(a) * len * 0.85, cy + Math.sin(a) * len * 0.85, 2.2, twig);
+    }
+    for (let i = 0; i < n; i++) {
+      const [a, len] = arms[Math.floor(R() * arms.length)], t = Math.pow(R(), 0.7);
+      const px = cx + Math.cos(a) * len * t + (R() - 0.5) * Q * 0.08, py = cy + Math.sin(a) * len * t + (R() - 0.5) * Q * 0.08;
+      const L = Lmin + (Lmax - Lmin) * R() * (0.75 + 0.25 * t), lang = a + (R() - 0.5) * 1.9;
+      const off = L * 0.45, lx = px + Math.cos(lang) * off, ly = py + Math.sin(lang) * off;
+      if (Math.hypot(lx - cx, ly - cy) + L / 2 > Q * 0.49) continue;               // keep a clear gutter (mip bleed)
+      const depth = 0.72 + 0.28 * (i / n);                                           // later leaves are on top -> brighter
+      const base = R() < 0.1 ? young : pickGreen();
+      leaf(lx, ly, lang, L, L / aspect, base, depth * (0.9 + 0.2 * R()));
+    }
+  }
+  cluster(0, 0, { n: 330, Lmin: 34, Lmax: 58, aspect: 2.1, twigs: 9 });            // A: trees
+  cluster(Q, 0, { n: 850, Lmin: 20, Lmax: 32, aspect: 2.2, twigs: 15 });           // B: shrubs
+  cluster(0, Q, { n: 300, Lmin: 20, Lmax: 32, aspect: 2.0, twigs: 11 });            // C: bougainvillea leaves...
+  { // ...plus magenta bract clusters on top (3 papery petals each)
+    const mag = ['#C8327E', '#D6488F', '#B52A70', '#DE5C9C'].map(rgb), cream = rgb('#F2E6C8');
+    for (let k = 0; k < 70; k++) {
+      const a = R() * Math.PI * 2, r = Q * 0.36 * Math.sqrt(R()), gx = Q / 2 + Math.cos(a) * r, gy = Q + Q / 2 + Math.sin(a) * r;
+      const c = mag[Math.floor(R() * mag.length)];
+      for (let b = 0; b < 7; b++) {
+        const bx = gx + (R() - 0.5) * 30, by = gy + (R() - 0.5) * 30, rot = R() * 6.28, s = 9 + R() * 5;
+        for (let p = 0; p < 3; p++) { const pa = rot + (p * Math.PI * 2) / 3; leaf(bx + Math.cos(pa) * s * 0.45, by + Math.sin(pa) * s * 0.45, pa, s, s * 0.85, c, 0.85 + 0.25 * R(), null, 0.55); }
+        blend(Math.round(bx), Math.round(by), cream, 1, null);
+      }
+    }
+  }
+  { // D: opaque, tiling leaf mass (dark under-layer, then dense leaves wrapped within the quadrant)
+    const dark = rgb('#3E5A33');
+    for (let y = Q; y < h; y++) for (let x = Q; x < w; x++) { const i = y * w + x; col[i * 3] = dark[0]; col[i * 3 + 1] = dark[1]; col[i * 3 + 2] = dark[2]; }
+    const wrap = { x0: Q, y0: Q };
+    for (let i = 0; i < 1500; i++) {
+      const L = 22 + R() * 18, depth = 0.65 + 0.35 * (i / 1500);
+      leaf(Q + R() * Q, Q + R() * Q, R() * 6.28, L, L / 2.2, R() < 0.08 ? young : pickGreen(), depth * (0.9 + 0.2 * R()), wrap);
+    }
+    for (let y = Q; y < h; y++) for (let x = Q; x < w; x++) alpha[y * w + x] = 1;
+  }
+  const al = img(w, h), am = img(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const x = i % w, y = (i / w) | 0;
+    put(al, w, x, y, clamp01(col[i * 3]), clamp01(col[i * 3 + 1]), clamp01(col[i * 3 + 2]));
+    put(am, w, x, y, alpha[i], alpha[i], alpha[i], 1);
+  }
+  return { w, h, albedo: al, alpha: am };
 }
 
-export const recipes = { caustics, waterNormal, epdm, grating, curtain, palmFrond, palmBark, foliage };
+export const recipes = { caustics, waterNormal, epdm, grating, curtain, palmFrond, palmBark, leafAtlas };
