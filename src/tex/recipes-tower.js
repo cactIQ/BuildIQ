@@ -281,13 +281,13 @@ function ornament({ size = 1024, color = '#D1BF9A', seed = 41 } = {}) {
   for (let x = 0; x < w; x++) { let acc = 0; for (let y = -rad; y <= rad; y++) acc += T[((y + h) % h) * w + x]; for (let y = 0; y < h; y++) { B[y * w + x] = acc / (2 * rad + 1); acc += T[((y + rad + 1) % h) * w + x] - T[((y - rad + h) % h) * w + x]; } }
   const al = img(w, h), ao = new Float32Array(w * h), rough = new Float32Array(w * h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = y * w + x, a = clamp01(1 - Math.max(0, B[i] - H[i]) * 2.2);
+    const i = y * w + x, a = clamp01(1 - Math.max(0, B[i] - H[i]) * 5.5);   // strong cavity AO so motifs read at elevation distance
     ao[i] = a; rough[i] = 0.86;
     const g = 1 + (n.noise(x / w, y / h, 128) - 0.5) * 0.05;
-    const k = (0.88 + 0.12 * H[i]) * (0.55 + 0.45 * a) * g;
+    const k = (0.7 + 0.32 * H[i]) * (0.4 + 0.6 * a) * g;                     // raised parts light, field/cavities darker
     put(al, w, x, y, clamp01(base[0] * k), clamp01(base[1] * k), clamp01(base[2] * k * 0.99));
   }
-  return { w, h, albedo: al, normal: heightToNormal(H, w, h, 5), orm: packORM(w, h, ao, rough, 0) };
+  return { w, h, albedo: al, normal: heightToNormal(H, w, h, 9), orm: packORM(w, h, ao, rough, 0) };
 }
 
 /** Clipped hedge / planter greenery: leafy clumps, strong normal, high roughness. Tiles. */

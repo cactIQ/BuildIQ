@@ -29,7 +29,7 @@ const pad = (n) => String(n).padStart(2, '0');
 /* ----------------------------------------- geometry accumulator ----------------------------------------- */
 const _e1 = V3(), _e2 = V3(), _cr = V3(), _n = V3();
 class Acc {
-  constructor() { this.pos = []; this.nor = []; this.uv = []; }
+  constructor() { this.pos = []; this.nor = []; this.uv = []; this.gl = []; this.g = 0; }   // g: night-wash glow tag (aGlow)
   get tris() { return this.pos.length / 9; }
   tri(a, b, c, n, ua, ub, uc) {
     _e1.subVectors(b, a); _e2.subVectors(c, a); _cr.crossVectors(_e1, _e2);
@@ -38,7 +38,7 @@ class Acc {
     _n.copy(n).normalize();
     for (const [p, uv] of [[a, ua], [b, ub], [c, uc]]) {
       this.pos.push(p.x, p.y, p.z); this.nor.push(_n.x, _n.y, _n.z);
-      this.uv.push(uv ? uv[0] : 0, uv ? uv[1] : 0);
+      this.uv.push(uv ? uv[0] : 0, uv ? uv[1] : 0); this.gl.push(this.g);
     }
   }
   quad(a, b, c, d, n, uvq) {
@@ -54,7 +54,7 @@ class Acc {
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i); if (m) v.applyMatrix4(m);
       nn.fromBufferAttribute(nr, i).applyMatrix3(nm).normalize();
-      this.pos.push(v.x, v.y, v.z); this.nor.push(nn.x, nn.y, nn.z);
+      this.pos.push(v.x, v.y, v.z); this.nor.push(nn.x, nn.y, nn.z); this.gl.push(this.g);
       if (uv) { const uu = uv.getX(i), vv = uv.getY(i), r = uvFn ? uvFn(uu, vv) : [uu, vv]; this.uv.push(r[0], r[1]); } else this.uv.push(0, 0);
     }
     if (ng !== g) ng.dispose();
@@ -65,6 +65,7 @@ class Acc {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('aGlow', new THREE.Float32BufferAttribute(this.gl, 1));
     if (uvTile) worldUV(g, uvTile);
     g.computeBoundingBox(); g.computeBoundingSphere();
     return g;
@@ -341,6 +342,7 @@ function buildTower(ctx, t, mats, index) {
   const A = {};
   for (const k of ['plaster', 'trim', 'recess', 'slab', 'deck', 'concrete', 'frame', 'rail', 'bglass', 'orn', 'dark', 'hedge', 'lamp']) A[k] = new Acc();
   const T = { acc: A, glass: [], low };
+  const tag = (v) => { for (const k in A) A[k].g = v; };   // night-wash glow tag for the following geometry
   const hw = t.w / 2, hd = t.d / 2;
   const reg = ctx.registry, Mt = towerMatrix(t);
   const place = (kind, id, box, supportY = null) => reg.place({ kind, id, bbox: box.clone().applyMatrix4(Mt), supportY, module: 'tower' });
@@ -452,12 +454,14 @@ function buildTower(ctx, t, mats, index) {
   const yOrd0 = floorY(ordMin) + 0.37, yOrd1 = floorTop(ordMax) - 0.18;
   const frontPil = (F, uc, z, wing) => {
     const ord = wing && ordMax > 0;
+    tag(0.8);
     cbox(A.plaster, F, uc - pw / 2, uc + pw / 2, baseY, ord ? yOrd0 : topY, -0.1, pp);
     if (ord) column(A.trim, F, uc, 0.06, yOrd0, yOrd1 - 0.26, 0.26, 16);
     for (const y of capLevels) {
       if (ord && y > yOrd0) capital(F, uc, y - 0.18, 0, 0.38, 0.4);
       else capital(F, uc, y - 0.18, 0);
     }
+    tag(0);
   };
   for (let i = 0; i < bays.length; i++) {
     const b = bays[i], prev = bays[i - 1];
@@ -472,6 +476,7 @@ function buildTower(ctx, t, mats, index) {
     }
   }
   // corner pilasters (wrap both faces) with capitals on both faces
+  tag(0.8);
   for (const [sx, sz, zc] of [[-1, 1, zFront0], [1, 1, zFront1], [-1, -1, -hd], [1, -1, -hd]]) {
     const x = sx * hw;
     const x0 = sx < 0 ? x - pp : x - pw, x1 = sx < 0 ? x + pw : x + pp, z0 = sz > 0 ? zc - pw : zc - pp, z1 = sz > 0 ? zc + pp : zc + pw;
@@ -483,20 +488,25 @@ function buildTower(ctx, t, mats, index) {
   }
   for (const side of ['W', 'E']) cbox(A.plaster, T[side].F, T[side].mid - pw / 2, T[side].mid + pw / 2, baseY, topY, -0.1, pp);
   for (let i = 1; i < L.north.length; i++) cbox(A.plaster, BACK(-hd), L.north[i].u0 - pw / 2, L.north[i].u0 + pw / 2, baseY, topY, -0.1, pp);
+  tag(0);
 
   /* ---------- slab bands and heavy cornices ---------- */
   const cs = t.cornice, cso = cs.project / 0.45, csy = cs.h / 0.55, bso = t.slabBand.project / 0.06, bsy = t.slabBand.h / 0.22;
   for (let f = 0; f <= t.floors; f++) {
+    tag(isC(f) ? 0.5 : 0.2);
     if (isC(f)) ring(A.trim, ol, CORNICE, { y: floorTop(f), so: cso, sy: csy });
     else if (f >= 1 && f < t.floors) ring(A.trim, ol, BAND, { y: floorTop(f), so: bso, sy: bsy });
   }
 
+  tag(0);
   /* ---------- roof: deck, parapet, crown ---------- */
   const shaft = t.roof?.shaft ? { x0: -t.roof.shaft.w / 2, x1: t.roof.shaft.w / 2, z0: -t.roof.shaft.d / 2, z1: t.roof.shaft.d / 2 } : null;
   hplane(A.deck, ol, topY, true, shaft ? [[[shaft.x0, shaft.z0], [shaft.x1, shaft.z0], [shaft.x1, shaft.z1], [shaft.x0, shaft.z1]]] : []);
   const pH = t.parapetH;
+  tag(0.7);
   ring(A.plaster, ol, [[0, 0], [0, pH], [-K.parapetT, pH], [-K.parapetT, 0]], { y: topY });
   ring(A.trim, ol, CROWN, { y: topY + pH });
+  tag(0);
   if (shaft) {
     const sd = 6, sp = [[shaft.x0, shaft.z0], [shaft.x1, shaft.z0], [shaft.x1, shaft.z1], [shaft.x0, shaft.z1]];
     A.recess.quad(V3(shaft.x0, topY, shaft.z0), V3(shaft.x1, topY, shaft.z0), V3(shaft.x1, topY - sd, shaft.z0), V3(shaft.x0, topY - sd, shaft.z0), V3(0, 0, 1));
@@ -512,6 +522,7 @@ function buildTower(ctx, t, mats, index) {
   const at = t.attic, th = 0.48, ex = 0.12, aTop = topY + at.bandH, rakeT = 0.28, aCap = aTop + 0.37 * csy * 0.85;
   const pitch = THREE.MathUtils.degToRad(at.pedimentPitchDeg);
   const fronts = [];
+  tag(1.2);
   for (const b of bays.filter((q) => q.type === 'wing')) {
     const x0 = b.x0 - ex, x1 = b.x1 + ex, zf = b.z + ex, zb = zf - th, zr = b.z - at.returnDepth;
     fronts.push({ x0, x1, zr });
@@ -560,9 +571,11 @@ function buildTower(ctx, t, mats, index) {
     place('attic', `${t.id}/Attic/${b.i + 1}`, new THREE.Box3(V3(x0, topY, zr), V3(x1, yb + hT + rakeT + 0.42, zf)), null);
   }
 
+  tag(0);
   /* ---------- mumties ---------- */
   const mumties = [];
   const mumtyBox = (x0, x1, z0, z1, h1, h2, tiers, id) => {
+    tag(0.9);
     cbox(A.plaster, TOWER, x0, x1, topY, topY + h1, z0, z1, 0.03);
     ring(A.trim, [[x0, z0], [x1, z0], [x1, z1], [x0, z1]], CORNICE, { y: topY + h1 - 0.04, so: cso * 0.6, sy: csy * 0.6 });
     let top = topY + h1;
@@ -577,6 +590,7 @@ function buildTower(ctx, t, mats, index) {
       (u, v) => Fm.P(u, v, 0.004), Fm.N);
     fbox(A.frame, BACK(z0), -(x0 + x1) / 2 - 0.5, -(x0 + x1) / 2 + 0.5, topY, topY + 2.1, 0, 0.03, { back: false });   // service door
     mumties.push({ x0, x1, z0, z1 });
+    tag(0);
     place('mumty', `${t.id}/Roof/${id}`, new THREE.Box3(V3(x0, topY, z0), V3(x1, top + 0.3, z1)), topY);
   };
   strips.forEach((b, i) => {
@@ -639,9 +653,9 @@ function buildTower(ctx, t, mats, index) {
     const m = new THREE.Mesh(g, mats[matName]); m.name = `${t.id}/${name}`; m.castShadow = cast; m.receiveShadow = receive;
     tg.add(m);
   };
-  add('plaster', 'plaster', 'Facade/Plaster');
-  add('trim', 'trim', 'Facade/Trim');
-  add('recess', 'plasterRecess', 'Facade/Recess');
+  add('plaster', 'tower.plaster', 'Facade/Plaster');
+  add('trim', 'tower.trim', 'Facade/Trim');
+  add('recess', 'tower.recess', 'Facade/Recess');
   add('slab', 'slabWhite', 'Facade/SlabEdge');
   add('deck', 'roofDeck', 'Roof/Deck', { tile: 4, cast: false });
   add('concrete', 'concrete', 'Plinth', { tile: 2 });
@@ -655,7 +669,8 @@ function buildTower(ctx, t, mats, index) {
 
   // windows: one InstancedMesh; aWin = (variant + sill/2, curtain, lit, tint)
   const gl = T.glass, plane = new THREE.PlaneGeometry(1, 1), aWin = new Float32Array(gl.length * 4), mats4 = [], ids = [];
-  const litP = ctx.SPEC.global.timeOfDay.litWindowFraction;
+  // lit state is per apartment unit (front bays share an id; side/north ids are split by position), ~40 % lit
+  const litP = Math.min(0.4, ctx.SPEC.global.timeOfDay.litWindowFraction), unitLit = new Map();
   gl.forEach((g, i) => {
     const pos = g.F.P(g.uc, g.vc, -K.glassD);
     mats4.push(new THREE.Matrix4().makeBasis(g.F.U.clone().multiplyScalar(g.W), Y.clone().multiplyScalar(g.H), g.F.N).setPosition(pos));
@@ -663,8 +678,11 @@ function buildTower(ctx, t, mats, index) {
     let variant = rng.int(0, 7), cur, lit, tint = rng();
     const cr = rng();
     cur = cr < 0.3 ? 0 : cr < 0.72 ? rng.range(0.25, 0.6) : rng.range(0.85, 1);
-    lit = rng.chance(litP) ? 1 : 0;
-    if (g.kind === 'stair') { variant = 5; cur = 0; lit = rng.chance(0.85) ? 1 : 0; }
+    const unit = /\/[NWE]$/.test(g.id || '') ? `${g.id}:${Math.round(g.uc / 3)}` : (g.id || `W${i}`);
+    if (!unitLit.has(unit)) unitLit.set(unit, rng.chance(litP) ? 1 : 0);
+    lit = unitLit.get(unit);
+    if (lit && rng.chance(0.25)) cur = rng.range(0.88, 1);          // curtain-dimmed lit units
+    if (g.kind === 'stair') { variant = 5; cur = 0; lit = rng.chance(0.22) ? 1 : 0; }   // no continuous stair stripe
     if (g.kind === 'lobby') { variant = 4; cur = 0; lit = 1; tint = 1; }
     aWin.set([variant + Math.min(1.5, Math.max(0, g.sill)) / 2, cur, lit, tint], i * 4);
   });
@@ -678,11 +696,12 @@ function buildTower(ctx, t, mats, index) {
   return tg;
 }
 const mix = (a, b, t) => a + (b - a) * t;
+const WASH_I = 0.11;   // night facade wash strength (emissive multiplier on albedo)
 
 /* ----------------------------------------- module entry ----------------------------------------- */
 export async function build(ctx) {
   const { SPEC, M } = ctx;
-  const names = ['plaster', 'trim', 'plasterRecess', 'slabWhite', 'roofDeck', 'concrete', 'frame', 'rail', 'balconyGlass',
+  const names = ['tower.plaster', 'tower.trim', 'tower.recess', 'slabWhite', 'roofDeck', 'concrete', 'frame', 'rail', 'balconyGlass',
     'tower.glass', 'tower.ornament', 'tower.darkGlass', 'tower.hedge', 'tower.lamp'];
   const list = await Promise.all(names.map((n) => M.use(n)));
   const mats = Object.fromEntries(names.map((n, i) => [n, list[i]]));
@@ -691,7 +710,9 @@ export async function build(ctx) {
   for (const t of SPEC.towers) group.add(buildTower(ctx, t, mats, index));
   group.userData.index = index;
   group.userData.getBayBox = getBayBox;
-  const glassU = mats['tower.glass'].userData.uniforms, lamp = mats['tower.lamp'];
+  const glassU = mats['tower.glass'].userData.uniforms, lamp = mats['tower.lamp'], dark = mats['tower.darkGlass'];
+  const washK = { 'tower.plaster': 1, 'tower.trim': 1, 'tower.ornament': 1, 'tower.recess': 0.6 };
+  const facades = Object.entries(washK).map(([n, w]) => [mats[n].userData.facade, w]).filter(([u]) => u);
   return {
     group,
     onTimeOfDay(k, s) {
@@ -701,6 +722,9 @@ export async function build(ctx) {
         glassU.uDayI.value = (0.04 + 0.11 * Math.min(1, sunI / 3.2)) * (1 - 0.6 * night);
       }
       if (lamp) lamp.emissiveIntensity = night * 2.2;
+      if (dark) dark.emissiveIntensity = night * 1.4;                         // round-headed attic windows glow
+      const wash = Math.max(0, (night - 0.15) / 0.85);                          // facade wash only from dusk on
+      for (const [u, w] of facades) u.uWash.value = wash * w * WASH_I;
     },
     dispose() { group.traverse((o) => { if (o.isMesh) o.geometry.dispose(); }); },
   };
