@@ -244,7 +244,7 @@ export async function createApp({ canvas, container = document.body } = {}) {
     } else {
       flight = { t: 0, dur: duration, from: { pos: camera.position.clone(), target: controls.target.clone(), lens: { ...lens } }, to };
     }
-    if (typeof p.tod === 'number' && params.shot) applyTime(p.tod, { immediateShadow: true });
+    if (typeof p.tod === 'number' && params.shot && !params.todExplicit) applyTime(p.tod, { immediateShadow: true });
     ev.emit('view', { id, preset: p });
     return true;
   }

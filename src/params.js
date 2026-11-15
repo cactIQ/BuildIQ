@@ -17,6 +17,7 @@ export function parseParams(search, SPEC) {
   return {
     view: view && VIEW_RE.test(view) && views.includes(view) ? view : 'hero',
     tod: num('tod', SPEC.global.timeOfDay.default, 0, 1),
+    todExplicit: p.has('tod') && Number.isFinite(Number(p.get('tod'))),
     shot: bool('shot'),
     freeze: bool('freeze') || bool('shot'),
     t: num('t', 0, 0, 1e6),
