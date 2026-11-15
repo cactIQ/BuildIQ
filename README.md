@@ -53,7 +53,7 @@ Everything lives in **`src/spec/`**:
   - every module built in node (no NaN, grounded, scale, draw-call and triangle budgets);
   - URL and postMessage sanitising;
   - i18n;
-  - compliance (banned names, `Math.random`, no CSS filters, no pricing).
+  - compliance (banned names, `Math.random`, no CSS filters, no cost figures in the UI).
 - `python tools/shoot.py`: renders each view, writes compare sheets against the internal references and
   `shots/rN/report.json`. Add `--perf` for headed real-GPU frame timing.
 - Architecture and rules: `docs/CONTRACTS.md`, `docs/build-prompt-v2.md`,
@@ -62,4 +62,4 @@ Everything lives in **`src/spec/`**:
 
 ## Licences
 See `assets/CREDITS.md`: three.js r170 (MIT), Fraunces and Inter (OFL). All textures and models are procedural and
-original. The reference images are internal measurement material only (`_internal/`, git-ignored, never deployed).
+original. The reference images are internal measurement material only (kept in a git-ignored folder and never deployed).
