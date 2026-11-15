@@ -63,3 +63,5 @@ Everything lives in **`src/spec/`**:
 ## Licences
 See `assets/CREDITS.md`: three.js r170 (MIT), Fraunces and Inter (OFL). All textures and models are procedural and
 original. The reference images are internal measurement material only (kept in a git-ignored folder and never deployed).
+
+Internal handover notes (open issues, client-use checklist): `docs/HANDOVER.md`.

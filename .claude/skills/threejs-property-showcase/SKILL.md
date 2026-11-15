@@ -122,7 +122,33 @@ Read these with this file:
   - a 16:9 example snippet.
 - A gallery fallback for weak devices or context loss. Hindi and Marathi stay hidden until native speakers review them.
 
-## 8. Troubleshooting (additions)
+## 8. Lessons from the v1 build (measured, not assumed)
+- **Art-directed sun per curated view** was the biggest lighting win. A global sun can't flatter every view: the
+  clubhouse sat in a tower's shadow, and a sun behind the camera gives flat "overcast" light.
+  - Rule: put the sun 40–60° off the camera axis, light the money face, and keep shadows short enough to miss
+    neighbours (shadow length = height / tan(elevation)).
+  - The visible sky glow must follow the same sun.
+- **Shade colour:** cream render in shade turns grey-green under a blue sky IBL. A warm, bright ground bounce in the env
+  scene and a lower env intensity fix it. Don't recolour the albedo instead.
+- **Camera framing beats detail:**
+  - A long-lens elevation, with the camera far back, reproduced ref A's gate-to-tower scale.
+  - A hero composition where both towers separate in projection was worth more than any material tweak. Check lateral
+    overlap numerically before shooting.
+- **Critic round 1 found that what sells the scene is everything around the building:** trees (no sphere blobs; use
+  leaf-card clusters), lawns (macro variation, detiling, dry patches, scrub), water (depth colour, Fresnel), glass and
+  sky.
+- **Parallel builder agents:**
+  - Strict file ownership plus frozen contracts worked well, with no merge conflicts.
+  - Expect some agents to refuse relayed user approval under org rules. Put the authorisation in the brief, or have them
+    stage work in a scratch copy for the orchestrator to apply.
+  - Agents hit usage limits, so resume them rather than restarting.
+- **Texture worker pool:** the procedural textures cost 7–9 s of worker CPU. Caps (512² for secondary textures) and a
+  parallel material preload helped. An unexplained ~3 s stall remains. Next time, build an IndexedDB cache or bake
+  textures at build time from day one.
+- **Test hygiene:** commit only when `npm test` exits 0 (a `grep` in the chain hid a failure once). The compliance test
+  also scans README wording, so keep internal folder names and pricing words out of deliverable docs.
+
+## 9. Troubleshooting (additions)
 - Python's `http.server` on Windows can serve `.js` as `text/plain`, which breaks modules. `tools/serve.py` forces the
   MIME types.
 - SphereGeometry with `thetaLength = PI/2` already maps uv.y from 1 (zenith) to 0 (horizon). Don't remap it for sky domes.
