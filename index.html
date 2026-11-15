@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Project Name — 3D Experience</title>
+  <meta name="description" content="Explore Project Name in interactive 3D. Indicative visualisation.">
+  <meta property="og:title" content="Project Name — 3D Experience">
+  <meta property="og:description" content="Explore Project Name in interactive 3D.">
+  <meta property="og:image" content="assets/og-image.jpg">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#0E0D0B">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/build/three.module.js",
+      "three/addons/": "./vendor/three/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="stage">
+    <img id="poster" data-src="assets/poster.jpg" alt="" aria-hidden="true" onerror="this.style.display='none'">
+    <canvas id="c" role="img" aria-label="Interactive 3D view of the project"></canvas>
+    <div id="vignette" aria-hidden="true"></div>
+  </div>
+  <div id="ui"></div>
+  <noscript>
+    <div class="noscript">
+      <h1>Project Name</h1>
+      <p>This interactive 3D experience needs JavaScript and WebGL. Indicative visualisation; details are placeholders.</p>
+      <p><a href="#enquire">Enquire</a></p>
+    </div>
+  </noscript>
+  <script>
+    if (location.protocol === 'file:') {
+      document.addEventListener('DOMContentLoaded', function () {
+        document.getElementById('ui').innerHTML = '<div class="filemsg"><h1>Please start the viewer</h1><p>Double-click <b>start.bat</b> (Windows) or run <b>start.sh</b> (macOS/Linux) in this folder. It opens this page from a local address so the 3D modules can load. No internet needed.</p></div>';
+      });
+    }
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "property-showcase",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Premium real-time Three.js property showcase (no build step).",
+  "scripts": {
+    "test": "node --import ./tests/register.mjs --test \"tests/*.test.mjs\"",
+    "serve": "python tools/serve.py",
+    "shoot": "python tools/shoot.py"
+  },
+  "license": "UNLICENSED"
+}

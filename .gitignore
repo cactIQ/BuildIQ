@@ -1,0 +1,6 @@
+_internal/
+shots/
+refine/snapshots/
+__pycache__/
+*.pyc
+node_modules/
