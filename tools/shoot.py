@@ -172,7 +172,21 @@ def main():
             print(f'[{status}] {v}: load {entry.get("loadS")}s, console errors {entry["consoleErrors"]}, {extra}')
         browser.close()
     httpd.shutdown()
-    with open(os.path.join(out, 'report.json'), 'w', encoding='utf-8') as f:
+    # merge with earlier invocations of the same round (e.g. a separate night or debug pass)
+    rp = os.path.join(out, 'report.json')
+    if os.path.exists(rp):
+        try:
+            with open(rp, encoding='utf-8') as f:
+                prev_rep = json.load(f)
+            for k, v in results['views'].items():
+                prev_rep.setdefault('views', {})[k + (f'.{a.debug}' if a.debug else '') + (f' [{a.query}]' if a.query else '')] = v
+            results = prev_rep
+        except (OSError, ValueError):
+            pass
+    else:
+        if a.debug or a.query:
+            results['views'] = {k + (f'.{a.debug}' if a.debug else '') + (f' [{a.query}]' if a.query else ''): v for k, v in results['views'].items()}
+    with open(rp, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2)
     print('Saved', out)
 
