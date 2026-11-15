@@ -5,7 +5,7 @@ export const cameras = {
   // Free orbit ('Explore') and user time-of-day changes keep it until another view is chosen.
   // hero (round 8): from the SW both towers stand side by side (no overlap in projection), the ornate south face and
   // the pool/clubhouse corner face the camera; evening sun from WSW rakes the visible faces. ~10 deg pitch.
-  hero:      { label: 'Hero', pos: [-93, 42, 107], target: [-14, 18, -6], fov: 34, tod: 0.35, sun: { azim: 235, elev: 18 } },
+  hero:      { label: 'Hero', pos: [-93, 42, 107], target: [-14, 18, -6], fov: 34, tod: 0.35, sun: { azim: 172, elev: 20 } },   // low sun from S, 45 deg off the camera: ornate fronts lit, flanks in shade (critic HERO-008)
   // ref A is a long-lens shot: camera well back across the road so gates and tower keep A's relative scale
   elevation: { label: 'Elevation', ref: 'A', pos: [3, 1.7, 112], target: [3, 1.7, 0], hfov: 52, shift: { horizonY: 0.95 }, aspect: 1160 / 794, tod: 0.0 },
   aerial:    { label: 'Aerial', ref: 'B', pos: [-88, 90, 135], target: [-10, 0, 0], fov: 33, aspect: 655 / 531, tod: 0.0 },

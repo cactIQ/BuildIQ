@@ -1,1 +1,2 @@
 {"round":7,"type":"critique","weighted":56,"blockers":0,"majors":20,"minors":16,"gates":{"consoleErrors":0,"grounding":"ok","tests":"39/39"},"verdict":"continue","note":"round 8 = final fix round per protocol (8 overall)"}
+{"round":8,"type":"critique","weighted":36,"prev":56,"fixed":22,"open":13,"regressed":0,"blockers":0,"verdict":"ready-with-caveats","note":"HERO-008 fixed after critique (r82: art-directed S sun). Protocol budget reached; remaining issues -> HANDOVER.md"}

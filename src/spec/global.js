@@ -40,7 +40,7 @@ export const global = {
       // day sun from SSE so the south + east faces (seen by hero, elevation, pool, clubhouse, aerial) are sunlit;
       // reduced sky IBL (blue) + warm sun keep the cream render from going grey-green (round-1 critique)
       { id: 'day',    k: 0.0,  sunElev: 52, sunAzim: 155, skyElev: 52,  sunColor: '#FFE9CC', sunI: 3.0,  envI: 0.55, exposure: 0.9, fog: 0.0011, fogColor: '#C4D2DE', hemi: 0.0,  night: 0,   nightDome: 0 },
-      { id: 'golden', k: 0.35, sunElev: 18, sunAzim: 105, skyElev: 14,  sunColor: '#FFB070', sunI: 2.6,  envI: 0.55, exposure: 1.0, fog: 0.0008, fogColor: '#CBD0D3', hemi: 0.0,  night: 0.1, nightDome: 0 },
+      { id: 'golden', k: 0.35, sunElev: 18, sunAzim: 105, skyElev: 14,  sunColor: '#FFC08A', sunI: 2.8,  envI: 0.5,  exposure: 1.0, fog: 0.0008, fogColor: '#D3CCC2', hemi: 0.0,  night: 0.1, nightDome: 0 },
       { id: 'dusk',   k: 0.65, sunElev: 12, sunAzim: 112, skyElev: 1,   sunColor: '#FF8A50', sunI: 0.9,  envI: 0.55, exposure: 1.3, fog: 0.0018, fogColor: '#8C8796', hemi: 0.05, night: 0.6, nightDome: 0.35 },
       { id: 'night',  k: 1.0,  sunElev: 40, sunAzim: 140, skyElev: -12, sunColor: '#9DB4FF', sunI: 0.35, envI: 0.5,  exposure: 2.1, fog: 0.0016, fogColor: '#2A3350', hemi: 0.35, night: 1,   nightDome: 1 },
     ],

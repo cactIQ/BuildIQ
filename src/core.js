@@ -211,7 +211,8 @@ export async function createApp({ canvas, container = document.body, onProgress 
     hemi.intensity = s.hemi;
     renderer.toneMappingExposure = s.exposure;
     scene.fog.color.copy(lerpColor(a.fogColor, b.fogColor, s.t)); scene.fog.density = s.fog;
-    setSkyFor(s, sky, nightMat);
+    // the visible sky's sun glow follows an art-directed view sun (env keyframes stay generic)
+    setSkyFor(viewSun ? { ...s, sunAzim: viewSun.azim } : s, sky, nightMat);
     cloudMat.color.copy(lerpColor('#ffffff', '#3a3f52', Math.min(1, s.night * 1.2))).lerp(new THREE.Color('#ffd2a8'), k > 0.15 && k < 0.8 ? 0.35 * (1 - Math.abs(k - 0.45) / 0.35) : 0);
     cloudMat.opacity = 0.85 - 0.45 * s.night;
     // environment: nearest pre-baked keyframe (same size => no recompile); intensity lerped
