@@ -234,7 +234,9 @@ export async function createApp({ canvas, container = document.body } = {}) {
   let currentView = params.view, flight = null;
   function setView(id, { instant = false, duration = 1.9 } = {}) {
     const p = SPEC.cameras[id]; if (!p) return false;
-    if (p.interior !== !!activeInterior) return switchScene(id, p);
+    // level shift-lens presets have polar = PI/2; OrbitControls would otherwise clamp them to maxPolar and tilt them
+    controls.maxPolarAngle = p.shift ? Math.PI / 2 : SPEC.orbitLimits.maxPolar;
+    if (!!p.interior !== !!activeInterior) return switchScene(id, p);
     currentView = id; userMoved = false; relaxShift = false;
     const to = { pos: new THREE.Vector3(...p.pos), target: new THREE.Vector3(...p.target), lens: presetLens(p) };
     if (instant || params.freeze || matchMedia('(prefers-reduced-motion: reduce)').matches) {
