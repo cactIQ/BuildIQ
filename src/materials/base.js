@@ -29,13 +29,13 @@ export function createMaterialLib(ctx) {
 
 /** Helper: standard PBR material from a tex.get() result with world-UV tiling handled by geometry. */
 export function pbr(t, opts = {}) {
-  const m = new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, ...opts });
+  const { normalStrength, useMetalMap, ...matOpts } = opts;   // our options are not material properties
+  const m = new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, ...matOpts });
   if (t) {
     if (t.albedo) m.map = t.albedo;
-    if (t.normal) { m.normalMap = t.normal; m.normalScale = new THREE.Vector2(opts.normalStrength ?? 1, opts.normalStrength ?? 1); }
-    if (t.orm) { m.aoMap = t.orm; m.roughnessMap = t.orm; m.metalnessMap = opts.useMetalMap ? t.orm : null; }
+    if (t.normal) { m.normalMap = t.normal; m.normalScale = new THREE.Vector2(normalStrength ?? 1, normalStrength ?? 1); }
+    if (t.orm) { m.aoMap = t.orm; m.roughnessMap = t.orm; m.metalnessMap = useMetalMap ? t.orm : null; }
   }
-  delete m.normalStrength; delete m.useMetalMap;
   return m;
 }
 

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embed Example</title>
+  <meta name="description" content="How to embed the 3D property viewer on a website with a responsive 16:9 frame.">
+  <style>
+    :root { --accent: #C9A45C; --bg: #F6F3EC; --text: #1D1B17; --muted: #5E584D; --code: #12110F; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0E0D0B; --text: #F3EDE1; --muted: #BCB2A1; } }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+    main { max-width: 64rem; margin: 0 auto; padding: 2rem 16px 4rem; }
+    h1 { font: 300 2rem/1.15 Georgia, 'Times New Roman', serif; margin: 0 0 .5rem; }
+    p { color: var(--muted); }
+    /* responsive 16:9 wrapper */
+    .viewer { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0E0D0B; border: 1px solid rgba(201,164,92,.45); border-radius: 4px; overflow: hidden; }
+    .viewer iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+    pre { background: var(--code); color: #F3EDE1; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: .8125rem; line-height: 1.5; }
+    code { font-family: Consolas, 'SFMono-Regular', Menlo, monospace; }
+    h2 { font: 400 1.25rem/1.3 Georgia, serif; margin: 2rem 0 .5rem; }
+    ul { color: var(--muted); padding-left: 1.2rem; }
+    button { font: inherit; padding: .4rem .8rem; border: 1px solid var(--accent); background: transparent; color: inherit; border-radius: 3px; cursor: pointer; }
+    .row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+    #log { font-family: Consolas, monospace; font-size: .8125rem; color: var(--muted); min-height: 1.5em; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Embed the 3D viewer</h1>
+  <p>Placeholder page. The viewer stays inert until a visitor clicks, so it never captures page scrolling.</p>
+
+  <div class="viewer">
+    <iframe src="index.html?embed=1&amp;view=hero" title="Interactive 3D view of the project" allow="fullscreen" allowfullscreen loading="lazy"></iframe>
+  </div>
+
+  <div class="row" aria-label="postMessage demo controls">
+    <button type="button" data-msg='{"v":1,"type":"setView","view":"aerial"}'>Aerial</button>
+    <button type="button" data-msg='{"v":1,"type":"setView","view":"pool"}'>Pool</button>
+    <button type="button" data-msg='{"v":1,"type":"setTime","preset":"dusk"}'>Dusk</button>
+    <button type="button" data-msg='{"v":1,"type":"tour","action":"play"}'>Play tour</button>
+  </div>
+  <p id="log" aria-live="polite"></p>
+
+  <h2>Copy-paste snippet</h2>
+<pre><code>&lt;div style="position:relative;width:100%;aspect-ratio:16/9"&gt;
+  &lt;iframe src="https://YOUR-HOST/viewer/index.html?embed=1&amp;view=hero"
+          title="Interactive 3D view of the project"
+          allow="fullscreen" allowfullscreen loading="lazy"
+          style="position:absolute;inset:0;width:100%;height:100%;border:0"&gt;&lt;/iframe&gt;
+&lt;/div&gt;</code></pre>
+
+  <h2>Options</h2>
+  <ul>
+    <li><code>embed=1</code> shows the poster and a "View in 3D" button; the scene loads only after a click.</li>
+    <li><code>autostart=1</code> loads straight away (still inert until clicked). <code>view=</code> and <code>tod=</code> (0 to 1) set the start.</li>
+    <li><code>ui=min</code> keeps only the view dock and the enquiry button.</li>
+    <li>postMessage v1 (inbound <code>setView</code>, <code>setTime</code>, <code>tour</code>) works only from origins listed in
+      <code>SPEC.embed.allowedOrigins</code>. Outbound events: <code>ready</code>, <code>viewChanged</code>, <code>ctaClicked</code>, <code>error</code>.</li>
+  </ul>
+</main>
+<script>
+  // Demo: send commands to the viewer and log its events. The viewer ignores these unless this page's origin is
+  // listed in SPEC.embed.allowedOrigins.
+  var frame = document.querySelector('.viewer iframe');
+  var log = document.getElementById('log');
+  document.querySelectorAll('[data-msg]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var target = new URL(frame.src, location.href).origin;
+      frame.contentWindow.postMessage(JSON.parse(b.getAttribute('data-msg')), target);
+    });
+  });
+  window.addEventListener('message', function (e) {
+    if (e.source !== frame.contentWindow || !e.data || e.data.source !== 'property-showcase') return;
+    log.textContent = 'viewer → ' + e.data.type + (e.data.view ? ' (' + e.data.view + ')' : '') + (e.data.id ? ' (' + e.data.id + ')' : '');
+  });
+</script>
+</body>
+</html>

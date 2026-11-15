@@ -13,7 +13,7 @@ const ui = mountUI({ root: document.getElementById('ui'), SPEC, params });
 async function start() {
   ui.loading(true);
   try {
-    const app = await createApp({ canvas, container: document.getElementById('stage') });
+    const app = await createApp({ canvas, container: document.getElementById('stage'), onProgress: ui.progress });
     if (app.fallback) { ui.fallback(); return; }
     ui.attach(app);
   } catch (err) {

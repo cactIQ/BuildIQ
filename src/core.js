@@ -34,8 +34,9 @@ function probeTier(params) {
   } catch { return 'low'; }
 }
 
-export async function createApp({ canvas, container = document.body } = {}) {
+export async function createApp({ canvas, container = document.body, onProgress = null } = {}) {
   const ev = bus();
+  if (onProgress) ev.on('progress', onProgress);
   const params = parseParams(location.search, SPEC);
   const t0 = performance.now();
   const tierName = probeTier(params);
@@ -272,9 +273,18 @@ export async function createApp({ canvas, container = document.body } = {}) {
         ev.emit('progress', { p: 1, label: '' });
       }
       activeInterior = interior; renderer.toneMapping = THREE.AgXToneMapping;
-    } else { activeInterior = null; renderer.toneMapping = THREE.NeutralToneMapping; }
+      // interior: look-around from a fixed spot (exterior orbit limits would push the camera through the walls)
+      controls.minDistance = 0.05; controls.maxDistance = 0.3; controls.enablePan = false; controls.enableZoom = false;
+    } else {
+      activeInterior = null; renderer.toneMapping = THREE.NeutralToneMapping;
+      controls.minDistance = SPEC.orbitLimits.minDistance; controls.maxDistance = SPEC.orbitLimits.maxDistance; controls.enablePan = true; controls.enableZoom = true;
+    }
     currentView = id;
-    camera.position.set(...p.pos); controls.target.set(...p.target); lens = presetLens(p); applyLens(); flight = null;
+    camera.position.set(...p.pos);
+    if (p.interior) controls.target.copy(new THREE.Vector3(...p.target).sub(camera.position).setLength(0.1).add(camera.position));
+    else controls.target.set(...p.target);
+    camera.lookAt(controls.target);
+    lens = presetLens(p); applyLens(); flight = null;
     ev.emit('view', { id, preset: p });
     return true;
   }
@@ -419,7 +429,9 @@ export async function createApp({ canvas, container = document.body } = {}) {
   }
   applyTime(k, { immediateShadow: true });
   applySize();
-  setView(params.view, { instant: true });
+  // an interior start view is entered after the exterior warm-up (below), so __ready means the interior is shown
+  const startInterior = !!SPEC.cameras[params.view]?.interior;
+  setView(startInterior ? 'hero' : params.view, { instant: true });
   applyDebug(params.debug);
 
   // warm-up: compile, then render every exterior preset once (with shadows) behind the loader
@@ -434,6 +446,7 @@ export async function createApp({ canvas, container = document.body } = {}) {
   camera.position.copy(save.pos); controls.target.copy(save.target); lens = save.lens; applyLens(); camera.lookAt(controls.target);
   renderer.shadowMap.needsUpdate = true;
   for (let i = 0; i < 3; i++) { renderer.info.reset(); renderer.render(scene, camera); await new Promise((r) => requestAnimationFrame(r)); }
+  if (startInterior) await setView(params.view, { instant: true });
   readyPrograms = renderer.info.programs?.length || 1;
   ttiMs = performance.now() - t0;
   requestAnimationFrame(frame);
