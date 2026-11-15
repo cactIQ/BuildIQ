@@ -2,16 +2,16 @@
 // All values inferred from refs B/C/A (fidelity review), tolerance about 5 m.
 export const site = {
   plot: { x: [-57.5, 57.5], z: [-41.5, 41.5] },             // inferred; real plot is irregular (v2)
-  world: { x: [-260, 260], z: [-260, 260] },                // ground extent incl. context
+  world: { x: [-1400, 1400], z: [-1400, 1400] },                // ground extent incl. context
   roads: [
-    { id: 'frontRoad', x: [-260, 260], z: [43.5, 53.5], lanes: 2, centreline: 'dashed' },
-    { id: 'northRoad', x: [-260, 260], z: [-51.5, -41.5], lanes: 2, centreline: 'dashed' },
+    { id: 'frontRoad', x: [-1400, 1400], z: [43.5, 53.5], lanes: 2, centreline: 'dashed' },
+    { id: 'northRoad', x: [-1400, 1400], z: [-51.5, -41.5], lanes: 2, centreline: 'dashed' },
   ],
   footpaths: [
-    { id: 'frontFpN', x: [-260, 260], z: [41.5, 43.5] },
-    { id: 'frontFpS', x: [-260, 260], z: [53.5, 55.5] },
-    { id: 'northFpS', x: [-260, 260], z: [-41.5, -39.5], outsidePlot: false },
-    { id: 'northFpN', x: [-260, 260], z: [-53.5, -51.5] },
+    { id: 'frontFpN', x: [-1400, 1400], z: [41.5, 43.5] },
+    { id: 'frontFpS', x: [-1400, 1400], z: [53.5, 55.5] },
+    { id: 'northFpS', x: [-1400, 1400], z: [-41.5, -39.5], outsidePlot: false },
+    { id: 'northFpN', x: [-1400, 1400], z: [-53.5, -51.5] },
   ],
   zebras: [
     { id: 'zebraW', road: 'frontRoad', x: -26, width: 4 },
@@ -52,14 +52,17 @@ export const site = {
     buildings: [
       [-95, 15, 18, 14, 4, '#E9E4DA'], [-90, -20, 16, 16, 3, '#D8D2C4'], [-100, -75, 20, 14, 4, '#E6DFCF'],
       [85, -70, 14, 12, 2, '#F2F0EA'], [95, 10, 18, 14, 4, '#DDD6C8'], [100, 85, 16, 14, 3, '#E9E4DA'],
-      [-40, 85, 20, 14, 4, '#D9D3C6'], [10, 90, 18, 16, 3, '#E4DDD0'], [55, 95, 16, 12, 4, '#CFCBC2'],
+      // south-side neighbours sit behind the elevation camera (z > 115) so the ref-A sightline across the road is clear
+      [-70, 135, 20, 14, 4, '#D9D3C6'], [10, 140, 18, 16, 3, '#E4DDD0'], [80, 130, 16, 12, 4, '#CFCBC2'],
       [-30, -80, 22, 14, 4, '#E7E1D4'], [30, -85, 16, 14, 3, '#D6D0C2'],
     ],
     treeBelts: [
       { x: [-140, -62], z: [-35, 35], density: 0.012 },
       { x: [62, 140], z: [-35, 60], density: 0.012 },
-      { x: [-140, 140], z: [62, 140], density: 0.008 },
+      { x: [-140, -45], z: [62, 140], density: 0.008 },      // south belt split: clear corridor x[-45,60]
+      { x: [60, 140], z: [62, 140], density: 0.008 },
       { x: [-140, 140], z: [-140, -60], density: 0.008 },
     ],
+    farTreeline: { radius: 950, height: 24 },               // core: far silhouette ring (1 draw) for a real horizon
   },
 };

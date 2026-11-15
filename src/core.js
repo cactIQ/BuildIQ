@@ -156,6 +156,14 @@ export async function createApp({ canvas, container = document.body, onProgress 
   const envBandMat = new THREE.MeshBasicMaterial({ map: silhouette, transparent: true, alphaTest: 0.3, side: THREE.BackSide, color: 0x4a4a46 });
   silhouette.colorSpace = THREE.SRGBColorSpace;
   const envBand = new THREE.Mesh(new THREE.CylinderGeometry(30, 30, 4, 48, 1, true), envBandMat); envBand.position.y = 0.6; envScene.add(envBand);
+
+  // far treeline: a fogged silhouette ring gives a believable horizon beyond the modelled context (1 draw)
+  const ftl = SPEC.site.farTreeline || { radius: 900, height: 38 };
+  const ftlTex = silhouette.clone(); ftlTex.wrapS = THREE.RepeatWrapping; ftlTex.repeat.set(9, 1); ftlTex.needsUpdate = true;
+  const farTreeMat = new THREE.MeshBasicMaterial({ map: ftlTex, alphaTest: 0.35, side: THREE.BackSide, color: 0x3d5a34, fog: true });
+  const farTrees = new THREE.Mesh(new THREE.CylinderGeometry(ftl.radius, ftl.radius, ftl.height, 96, 1, true), farTreeMat);
+  farTrees.position.y = ftl.height / 2 - 1; farTrees.name = 'FarTreeline'; farTrees.renderOrder = 1;
+  scene.add(farTrees);
   const envMaps = {};
 
   /* ----------------------------- time of day ----------------------------- */
@@ -194,7 +202,8 @@ export async function createApp({ canvas, container = document.body, onProgress 
     const s = todState = todBlend(kfs, k);
     const a = kfById[s.a], b = kfById[s.b];
     // sun: clamp elevation >= 12 deg; fade intensity below via keyframe values
-    dirFrom(Math.max(12, s.sunElev), s.sunAzim, sunDir);
+    // curated views may art-direct the sun azimuth (archviz practice); free orbit uses the keyframe azimuth
+    dirFrom(Math.max(12, viewSun?.elev ?? s.sunElev), viewSun?.azim ?? s.sunAzim, sunDir);
     sun.color.copy(lerpColor(a.sunColor, b.sunColor, s.t));
     sun.intensity = s.sunI;
     hemi.intensity = s.hemi;
@@ -232,13 +241,15 @@ export async function createApp({ canvas, container = document.body, onProgress 
   }
   const presetLens = (p) => ({ tanV: presetTanV(p, viewAspect), shift: p.shift ? p.shift.horizonY - 0.5 : 0 });
 
-  let currentView = params.view, flight = null;
+  let currentView = params.view, flight = null, viewSun = null;
   function setView(id, { instant = false, duration = 1.9 } = {}) {
     const p = SPEC.cameras[id]; if (!p) return false;
     // level shift-lens presets have polar = PI/2; OrbitControls would otherwise clamp them to maxPolar and tilt them
     controls.maxPolarAngle = p.shift ? Math.PI / 2 : SPEC.orbitLimits.maxPolar;
     if (!!p.interior !== !!activeInterior) return switchScene(id, p);
     currentView = id; userMoved = false; relaxShift = false;
+    const nextSun = p.sun || null;   // {azim, elev}: art-directed sun for curated views (free orbit: keyframe sun)
+    if (JSON.stringify(nextSun) !== JSON.stringify(viewSun)) { viewSun = nextSun; applyTime(k, { immediateShadow: true }); }
     const to = { pos: new THREE.Vector3(...p.pos), target: new THREE.Vector3(...p.target), lens: presetLens(p) };
     if (instant || params.freeze || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       camera.position.copy(to.pos); controls.target.copy(to.target); lens = to.lens; applyLens(); camera.lookAt(to.target); flight = null;
@@ -272,7 +283,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
         } catch (err) { console.error('[gym]', err); ev.emit('error', { code: 'interior' }); return false; }
         ev.emit('progress', { p: 1, label: '' });
       }
-      activeInterior = interior; renderer.toneMapping = THREE.AgXToneMapping;
+      activeInterior = interior; renderer.toneMapping = THREE.NeutralToneMapping;   // AgX greyed the warm walls (round 1)
       // interior: look-around from a fixed spot (exterior orbit limits would push the camera through the walls)
       controls.minDistance = 0.05; controls.maxDistance = 0.3; controls.enablePan = false; controls.enableZoom = false;
     } else {
@@ -423,7 +434,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
   // bake env keyframes (same size; switching textures does not recompile)
   for (const kf of kfs) {
     setSkyFor(kf, envSky, envNight.material);
-    envGround.material.color.set(kf.night > 0.5 ? 0x15171c : 0x6f6a62);
+    envGround.material.color.set(kf.night > 0.5 ? 0x15171c : 0xA8977A);   // warm, bright ground bounce (sunlit pavers) keeps shaded cream walls from going grey-green
     envBandMat.color.set(kf.night > 0.5 ? 0x0e0f12 : 0x4a4a46);
     envMaps[kf.id] = pmrem.fromScene(envScene, 0.02).texture;
   }
