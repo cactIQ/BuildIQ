@@ -8,7 +8,7 @@ import { pbr } from './base.js';
 /* --------------------------- room layout shared with interior-gym.js --------------------------- */
 export const GYM = {
   W: 7.5, D: 9.5, H: 2.5,                                // room size (x, z, y); centred on the origin
-  wallColor: '#DACDAF', ceilingColor: '#E4DAC6', tileColor: '#ABAAA5',
+  wallColor: '#BCAE8C', ceilingColor: '#DCCDB3', tileColor: '#ABAAA5',   // walls: warm tan of ref F
   // flush LED rectangle in the ceiling (x0, x1, z0, z1) and the 8 downlights [x, z]
   led: { x: [-1.35, 1.55], z: [-2.85, 0.6], strip: 0.035 },
   downlights: [[-1.97, 0.4], [-1.97, -1.5], [-1.97, -3.67], [1.97, 0.4], [1.97, -1.5], [1.97, -3.67], [0.15, -1.0], [0.1, 2.4]],
@@ -36,6 +36,28 @@ function edgeShade(g, w, h, size, v, sides = 'lrtb') {
   if (sides.includes('b')) { g.fillStyle = mk(0, h, 0, h - size); g.fillRect(0, h - size, w, size); }
   g.globalCompositeOperation = 'source-over';
 }
+/** Extra darkening in the four canvas corners (where two room edges meet). */
+function cornerShade(g, w, h, size, v) {
+  g.globalCompositeOperation = 'multiply';
+  for (const [x, y] of [[0, 0], [w, 0], [0, h], [w, h]]) {
+    const r = g.createRadialGradient(x, y, 0, x, y, size);
+    r.addColorStop(0, gray(v)); r.addColorStop(1, gray(1));
+    g.fillStyle = r; g.fillRect(x - size, y - size, size * 2, size * 2);
+  }
+  g.globalCompositeOperation = 'source-over';
+}
+/** Soft rounded-rect contact shadow (alpha): dark core, falloff to 0 at the decal edge. */
+function paintShadow(g, w, h) {
+  if (!g.createImageData) return;
+  const im = g.createImageData(w, h), d = im.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const u = Math.abs((x + 0.5) / w - 0.5), v = Math.abs((y + 0.5) / h - 0.5);
+    const qx = Math.max(u - 0.18, 0), qy = Math.max(v - 0.18, 0), dist = Math.hypot(qx, qy) - 0.1;  // rounded rect SDF
+    const t = Math.min(1, Math.max(0, (dist + 0.1) / 0.32)), a = (1 - t * t * (3 - 2 * t));
+    const i = (y * w + x) * 4; d[i] = d[i + 1] = d[i + 2] = 0; d[i + 3] = Math.round(255 * a);
+  }
+  g.putImageData(im, 0, 0);
+}
 // CanvasTexture flipY=true: canvas row 0 is v = 1.
 
 /** Floor lightmap: canvas x = room x (-W/2..W/2), canvas y = room z (+D/2 at the top row... v = (z + D/2)/D). */
@@ -48,6 +70,8 @@ function paintFloor(g, w, h) {
   for (const [z0, z1] of GYM.windows) glow(g, px(-W / 2 + 0.3), pz((z0 + z1) / 2), 1.9 * s, ((z1 - z0) / 2 + 0.7) * s, 0.4);   // daylight spill
   g.globalCompositeOperation = 'source-over';
   edgeShade(g, w, h, 0.45 * s, 0.62);
+  edgeShade(g, w, h, 0.12 * s, 0.6);                 // tight contact AO at the wall/floor junction
+  cornerShade(g, w, h, 0.9 * s, 0.6);
 }
 /** Side-wall lightmap (u = (z + D/2)/D, v = y/H): downlight scallops and window bounce. */
 function paintSide(g, w, h) {
@@ -58,6 +82,8 @@ function paintSide(g, w, h) {
   for (const [x, z] of GYM.downlights) if (Math.abs(x) > 1) { glow(g, pz(z), py(1.55), 0.6 * s, 1.2 * s, 0.32); glow(g, pz(z), py(2.22), 0.24 * s, 0.34 * s, 0.18); }
   g.globalCompositeOperation = 'source-over';
   edgeShade(g, w, h, 0.35 * s, 0.7, 'lrtb');
+  edgeShade(g, w, h, 0.14 * s, 0.6, 'lrb');          // corner + floor-junction AO
+  cornerShade(g, w, h, 0.7 * s, 0.7);
 }
 /** Back/front wall lightmap (u = (x + W/2)/W, v = y/H). */
 function paintBack(g, w, h) {
@@ -68,6 +94,8 @@ function paintBack(g, w, h) {
   for (const [x, z] of GYM.downlights) if (z < -3) { glow(g, px(x), py(1.5), 0.55 * s, 1.15 * s, 0.34); glow(g, px(x), py(2.2), 0.22 * s, 0.34 * s, 0.2); }
   g.globalCompositeOperation = 'source-over';
   edgeShade(g, w, h, 0.4 * s, 0.7, 'lrtb');
+  edgeShade(g, w, h, 0.14 * s, 0.6, 'lrb');
+  cornerShade(g, w, h, 0.7 * s, 0.7);
 }
 /** Ceiling lightmap (u = (x + W/2)/W, v = (z + D/2)/D): bright inside the LED rectangle, darker corners. */
 function paintCeiling(g, w, h) {
@@ -83,6 +111,7 @@ function paintCeiling(g, w, h) {
   for (const [x, z] of GYM.downlights) glow(g, px(x), pz(z), 0.35 * s, 0.35 * s, 0.10);
   g.globalCompositeOperation = 'source-over';
   edgeShade(g, w, h, 0.6 * s, 0.6);
+  edgeShade(g, w, h, 0.12 * s, 0.7);
 }
 
 /** Walnut door face: vertical grain + diagonal grooves on the handle half (original pattern). */
@@ -168,7 +197,8 @@ export function define(M, SPEC) {
   const lm = (ctx, key, w, h, fn) => { const t = ctx.tex.canvas(key, w, h, fn, { srgb: false }); return t; };
 
   M.define('gym.floor', async (ctx) => {
-    const t = await ctx.tex.get('floorTiles', { color: GYM.tileColor || P.gymTile, tile: 2.4, tileW: 1.2, tileH: 0.6, seed: 41 });
+    // 1200 x 600 tiles with a visible 3 mm dark grout (recipe in recipes-site.js: gymTiles)
+    const t = await ctx.tex.get('gymTiles', { color: GYM.tileColor || P.gymTile, tile: 2.4, tileW: 1.2, tileH: 0.6, grout: 0.003, seed: 41 });
     const m = pbr(t, { roughness: 1 });
     if (m.normalMap) m.normalScale.set(0.6, 0.6);
     m.lightMap = lm(ctx, 'gym.floorLM', 384, 488, paintFloor); m.lightMap.channel = 1; m.lightMapIntensity = LIGHTMAP_INTENSITY;
@@ -176,7 +206,7 @@ export function define(M, SPEC) {
     return m;
   });
   const wall = (key, painter, w, h) => async (ctx) => {
-    const m = new THREE.MeshStandardMaterial({ color: P.gymWall || GYM.wallColor, roughness: 0.92, envMapIntensity: 0.45 });
+    const m = new THREE.MeshStandardMaterial({ color: GYM.wallColor, roughness: 0.92, envMapIntensity: 0.4 });
     m.lightMap = lm(ctx, key, w, h, painter); m.lightMapIntensity = LIGHTMAP_INTENSITY;
     return m;
   };
@@ -200,6 +230,11 @@ export function define(M, SPEC) {
     map: ctx.tex.canvas('gym.perfTex', 256, 256, paintPerf(false), { repeat: true }),
     emissiveMap: ctx.tex.canvas('gym.perfGlow', 256, 256, paintPerf(true), { repeat: true }),
     emissive: new THREE.Color(1, 0.9, 0.75), emissiveIntensity: 1.6, roughness: 0.6, side: THREE.DoubleSide,
+  }));
+  // contact shadows under every floor object (soft rounded rect, about 1.2x the footprint)
+  M.define('gym.contactShadow', async (ctx) => new THREE.MeshBasicMaterial({
+    map: ctx.tex.canvas('gym.shadowTex', 128, 128, paintShadow), color: 0x000000, transparent: true, opacity: 0.45,
+    depthWrite: false,
   }));
   M.define('gym.leaf', async () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, side: THREE.DoubleSide }));
   M.define('gym.pot', async () => new THREE.MeshStandardMaterial({ color: '#1C1C1D', roughness: 0.35, metalness: 0.1 }));

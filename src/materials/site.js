@@ -13,12 +13,33 @@ const GROUND_PARS = /* glsl */`
 varying vec3 vSiteW;
 uniform sampler2D uAtlas; uniform sampler2D uGrime;
 uniform vec4 uRect; uniform vec3 uDetail; uniform vec4 uEarth; uniform vec4 uPaint; uniform float uRoad; uniform vec4 uDash;
+uniform float uField; uniform vec4 uStone; uniform vec3 uTint;
 float sHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float sNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(sHash(i), sHash(i + vec2(1.0, 0.0)), f.x), mix(sHash(i + vec2(0.0, 1.0)), sHash(i + vec2(1.0, 1.0)), f.x), f.y); }
+// rotated-octave fbm (no axis-aligned lattice look at distance)
+float sFbm(vec2 p){ float a = 0.5, s = 0.0; mat2 r = mat2(0.8, 0.6, -0.6, 0.8);
+  for (int i = 0; i < 4; i++) { s += a * sNoise(p); p = r * p * 2.03 + vec2(1.7, 9.2); a *= 0.5; } return s / 0.9375; }
 `;
 const GROUND_FRAG = /* glsl */`
-#include <map_fragment>
+#ifdef USE_MAP
+{
+  vec4 sampledDiffuseColor = texture2D(map, vMapUv);
+  if (uField > 0.5) {
+    // detile: a second, rotated + rescaled sample blended by a world-space mask
+    vec2 ruv = mat2(0.5736, 0.8192, -0.8192, 0.5736) * vMapUv * 0.61 + vec2(0.43, 0.17);
+    sampledDiffuseColor = mix(sampledDiffuseColor, texture2D(map, ruv), smoothstep(0.35, 0.65, sFbm(vSiteW.xz / 17.0 + 3.0)));
+  }
+  if (uStone.z > 0.0) {
+    // per-stone tone, globally unique (stone grid = the running-bond grid of the pavers recipe in UV space)
+    float row = floor(vMapUv.y * uStone.y), col = floor(vMapUv.x * uStone.x + mod(row, 2.0) * 0.5);
+    float h1 = sHash(vec2(col, row) * 0.1373 + 0.51), h2 = sHash(vec2(row, col) * 0.0917 + 3.7);
+    sampledDiffuseColor.rgb *= (1.0 + (h1 - 0.5) * 2.0 * uStone.z) * mix(vec3(1.02, 1.0, 0.97), vec3(0.985, 1.0, 1.02), h2);
+  }
+  diffuseColor *= sampledDiffuseColor;
+}
+#endif
+diffuseColor.rgb *= uTint;
 {
   vec2 sw = vSiteW.xz;
   float sg1 = texture2D(uGrime, sw / uDetail.x).r;
@@ -26,7 +47,26 @@ const GROUND_FRAG = /* glsl */`
   float sg2 = texture2D(uGrime, sr / uDetail.y + vec2(0.37, 0.61)).r;
   float smk = smoothstep(0.3, 0.7, sNoise(sw / uDetail.z) * 0.7 + sNoise(sw / (uDetail.z * 0.37) + 5.0) * 0.3);
   diffuseColor.rgb *= mix(sg1, sg2, smk) * (0.94 + 0.12 * sNoise(sw / (uDetail.z * 1.7) + 11.0));
-  diffuseColor.rgb = mix(diffuseColor.rgb, uEarth.rgb, uEarth.a * smoothstep(0.45, 0.8, sNoise(sw / 55.0 + 3.0) * 0.75 + sNoise(sw / 13.0) * 0.25));
+  diffuseColor.rgb = mix(diffuseColor.rgb, uEarth.rgb, uEarth.a * smoothstep(0.5, 0.8, sFbm(sw / 55.0 + 3.0) * 0.75 + sNoise(sw / 13.0) * 0.25));
+  if (uField > 0.5) {
+    // off-site fields (refs B/C scrubland): 40-200 m macro hue/value, dry + ochre grass, scrub, bare earth by roads
+    float m1 = sFbm(sw / 190.0 + 11.0), m2 = sFbm(sw / 70.0 + 23.0), m3 = sFbm(sw / 31.0 + 37.0), m4 = sFbm(sw / 9.0 + 5.0);
+    float l = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float tx = clamp(l / 0.17, 0.55, 1.6);                              // texture detail relative to the mean lawn
+    vec3 col = mix(vec3(l), diffuseColor.rgb, 0.8);                    // -20 % saturation
+    float wDry = smoothstep(0.45, 0.56, m1 * 0.55 + m2 * 0.3 + m4 * 0.15);   // fbm ~ N(0.5, 0.1): tight bands = patches
+    col = mix(col, vec3(0.25, 0.23, 0.10) * tx, wDry * 0.85);           // straw / olive dry grass
+    float wOch = smoothstep(0.5, 0.6, m2 * 0.6 + m3 * 0.4) * (0.3 + 0.7 * wDry);
+    col = mix(col, vec3(0.32, 0.22, 0.095) * tx, wOch * 0.7);          // ochre
+    float wScrub = smoothstep(0.53, 0.62, m3 * 0.55 + m4 * 0.45) * (1.0 - wDry * 0.4);
+    col = mix(col, vec3(0.06, 0.08, 0.035) * tx, wScrub * 0.7);         // dark scrub
+    float dRoad = min(abs(sw.y - uDash.x), abs(sw.y - uDash.y)) - 7.2;
+    float wEarth = (1.0 - smoothstep(0.0, 10.0, dRoad)) * smoothstep(0.42, 0.55, m4 * 0.6 + m3 * 0.4);
+    wEarth = max(wEarth, smoothstep(0.6, 0.68, m2 * 0.5 + m4 * 0.5) * 0.85);
+    col = mix(col, vec3(0.23, 0.17, 0.105) * tx, wEarth);              // bare earth
+    col *= 0.62 + 0.75 * m1 * (0.7 + 0.3 * m3);
+    diffuseColor.rgb = col;
+  }
   vec2 auv = (sw - uRect.xy) / uRect.zw;
   float inA = step(0.0, auv.x) * step(auv.x, 1.0) * step(0.0, auv.y) * step(auv.y, 1.0);
   vec4 sat = mix(vec4(1.0, 0.0, 0.0, 1.0), texture2D(uAtlas, vec2(auv.x, 1.0 - auv.y)), inA);
@@ -41,7 +81,7 @@ const GROUND_FRAG = /* glsl */`
 }
 `;
 
-function patchGround(mat, { atlas, grime, detail = [7.3, 19.1, 40], earth = ['#000000', 0], paint = ['#F1F0EA', 0.92], road = 0, roads = [] }) {
+function patchGround(mat, { atlas, grime, detail = [7.3, 19.1, 40], earth = ['#000000', 0], paint = ['#F1F0EA', 0.92], road = 0, roads = [], field = 0, stone = [0, 0, 0], tint = [1, 1, 1] }) {
   const R = ATLAS_RECT;
   const zc = roads.map((r) => (r.z[0] + r.z[1]) / 2);
   const u = {
@@ -51,6 +91,9 @@ function patchGround(mat, { atlas, grime, detail = [7.3, 19.1, 40], earth = ['#0
     uEarth: { value: new THREE.Vector4(...new THREE.Color(earth[0]).toArray(), earth[1]) },
     uPaint: { value: new THREE.Vector4(...new THREE.Color(paint[0]).toArray(), paint[1]) },
     uRoad: { value: road },
+    uField: { value: field },
+    uStone: { value: new THREE.Vector4(stone[0], stone[1], stone[2], 0) },
+    uTint: { value: new THREE.Vector3(...tint) },
     uDash: { value: new THREE.Vector4(zc[0] ?? 1e5, zc[1] ?? 1e5, DASH.len, DASH.gap) },
   };
   mat.userData.siteUniforms = u;
@@ -60,7 +103,7 @@ function patchGround(mat, { atlas, grime, detail = [7.3, 19.1, 40], earth = ['#0
       '#include <project_vertex>\n  vSiteW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = GROUND_PARS + shader.fragmentShader.replace('#include <map_fragment>', GROUND_FRAG);
   };
-  mat.customProgramCacheKey = () => 'siteGround1';
+  mat.customProgramCacheKey = () => 'siteGround2';
   return mat;
 }
 
@@ -231,10 +274,20 @@ export function define(M, SPEC) {
     return patchGround(m, { atlas: atlasOf(ctx), grime: gr.albedo, roads: SPEC.site.roads, ...opts });
   };
 
-  M.define('site.paving', (ctx) => ground(ctx, ctx.tex.get('pavers', { color: P.pavers, tile: 2 }), { detail: [7.3, 19.1, 40] }));
-  M.define('site.footpath', (ctx) => ground(ctx, ctx.tex.get('pavers', { color: '#B7B1A6', tile: 1.2, unitW: 0.3, unitH: 0.3, joint: 0.008, seed: 12, tint: 0.05 }), { detail: [6.7, 17.9, 40] }));
+  // pavers: warm grey (the sky/env pushes them blue, so the albedo leans warm of the #A8A59F target), +-8 % per stone
+  // (shader, globally unique per stone: uStone = stones per UV unit), macro warm grime patches via `earth`.
+  M.define('site.paving', (ctx) => ground(ctx, ctx.tex.get('pavers', { color: '#ADA79C', tile: 2, tint: 0.02 }), { detail: [7.3, 19.1, 40], stone: [10, 20, 0.08], earth: ['#857A69', 0.3], tint: [1.02, 1.0, 0.97] }));
+  M.define('site.footpath', (ctx) => ground(ctx, ctx.tex.get('pavers', { color: '#B7AFA2', tile: 1.2, unitW: 0.3, unitH: 0.3, joint: 0.008, seed: 12, tint: 0.02 }), { detail: [6.7, 17.9, 40], stone: [4, 4, 0.07], earth: ['#857A69', 0.25] }));
   M.define('site.road', (ctx) => ground(ctx, ctx.tex.get('asphalt', { color: P.asphalt }), { detail: [6.1, 17.3, 40], road: 1 }));
-  M.define('site.lawn', (ctx) => ground(ctx, ctx.tex.get('lawn', { color: '#6A8443' }), { detail: [9.7, 31, 60], earth: ['#8A7A58', 0.75], paint: ['#ffffff', 0] }));
+  // vehicle drive loop inside the plot: darker concrete/asphalt, distinct from the pedestrian pavers
+  M.define('site.drive', async (ctx) => {
+    const m = await ground(ctx, ctx.tex.get('asphalt', { color: '#6E7178', seed: 29 }), { detail: [6.4, 18.3, 40], earth: ['#5E5A54', 0.2] });
+    m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -1;
+    return m;
+  });
+  M.define('site.lawn', (ctx) => ground(ctx, ctx.tex.get('lawn', { color: '#6A8443' }), { detail: [9.7, 31, 60], earth: ['#8A7A58', 0], paint: ['#ffffff', 0], field: 1 }));
+  // low scrub mounds in the off-site fields (instanced, per-instance colour)
+  M.define('site.scrub', async () => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, metalness: 0, envMapIntensity: 0.6 }));
 
   M.define('site.facade', async (ctx) => {
     const t = await ctx.tex.get('contextFacade', { seed: 53 });

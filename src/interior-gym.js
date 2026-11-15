@@ -14,7 +14,7 @@ export async function build(ctx) {
   const M = ctx.M;
   const mats = {};
   for (const n of ['gym.floor', 'gym.wallSide', 'gym.wallBack', 'gym.ceiling', 'gym.led', 'gym.outside', 'gym.door', 'gym.doorFrame',
-    'gym.metalDark', 'gym.rubber', 'gym.matNavy', 'gym.matGrey', 'gym.lampShade', 'gym.leaf', 'gym.pot', 'gym.art', 'gym.yoga', 'steel', 'contactShadow']) mats[n] = await M.use(n);
+    'gym.metalDark', 'gym.rubber', 'gym.matNavy', 'gym.matGrey', 'gym.lampShade', 'gym.leaf', 'gym.pot', 'gym.art', 'gym.yoga', 'steel', 'gym.contactShadow']) mats[n] = await M.use(n);
 
   /* ---------------- helpers ---------------- */
   const parts = {};                                          // material name -> [{geometry, matrix}]
@@ -35,10 +35,11 @@ export async function build(ctx) {
     const m = util.mesh(geometry, mats[name], { name: opts.label || name.replace('gym.', 'Gym_'), castShadow: false, receiveShadow: false });
     group.add(m); return m;
   };
-  const shadowDecal = (x, z, sx, sz, opacity = 1) => {
-    const g = new THREE.PlaneGeometry(sx, sz); g.rotateX(-Math.PI / 2); g.translate(x, 0.004, z);
-    add('contactShadow', g);
-    void opacity;
+  /** Soft contact shadow under a floor object: footprint sx x sz (m) centred at x,z, drawn at ~1.2x + a small margin
+   *  (the texture's dark core covers the inner ~60 %, fading to 0 at the decal edge). */
+  const shadowDecal = (x, z, sx, sz, rot = 0) => {
+    const g = new THREE.PlaneGeometry(sx * 1.2 + 0.12, sz * 1.2 + 0.12); g.rotateX(-Math.PI / 2); g.rotateY(rot); g.translate(x, 0.002, z);   // below the 6 mm mats, no polygon offset (so it never draws over them)
+    add('gym.contactShadow', g);
   };
 
   /* ---------------- room shell ---------------- */
@@ -141,7 +142,7 @@ export async function build(ctx) {
     add('gym.rubber', box(cx - L / 2 - 0.2, 1.255, cz - 0.2, cx - L / 2 + 0.04, 1.27, cz + 0.2));
     add('steel', cyl(0.016, 0.016, 0.72, 10), M4([cx - L / 2 + 0.1, 1.05, cz], [Math.PI / 2, 0, 0]));
     place('equipment', 'Treadmill', bbox(cx - L / 2 - 0.22, 0, cz - Wd / 2, cx + L / 2, 1.27, cz + Wd / 2));
-    shadowDecal(cx, cz, L + 0.4, Wd + 0.3);
+    shadowDecal(cx - 0.1, cz, L + 0.2, Wd);
   }
   // exercise bike (side-on), left of the treadmill
   {
@@ -157,7 +158,7 @@ export async function build(ctx) {
     add('gym.metalDark', box(cx - 0.3, 1.05, cz - 0.24, cx - 0.22, 1.09, cz + 0.24));                           // bars
     add('gym.rubber', box(cx - 0.35, 1.06, cz - 0.08, cx - 0.2, 1.16, cz + 0.08));                              // console
     place('equipment', 'Bike', bbox(cx - 0.5, 0, cz - 0.24, cx + 0.6, 1.16, cz + 0.24));
-    shadowDecal(cx, cz, 1.3, 0.7);
+    shadowDecal(cx + 0.05, cz, 1.1, 0.48);
   }
   // dumbbell tower rack
   {
@@ -174,24 +175,27 @@ export async function build(ctx) {
       }
     }
     place('equipment', 'DumbbellRack', bbox(cx - 0.2, 0, cz - 0.2, cx + 0.2, 1.0, cz + 0.2));
-    shadowDecal(cx, cz, 0.6, 0.6);
+    shadowDecal(cx, cz, 0.4, 0.4);
   }
 
   /* ---------------- mats, blocks, bottles ---------------- */
   {
     const mats4 = [[-1.75, -3.0], [0.95, -3.0], [-1.75, -0.85], [0.95, -0.85]];
-    mats4.forEach(([x, z], i) => { add('gym.matNavy', box(x - 0.915, 0, z - 0.305, x + 0.915, 0.006, z + 0.305)); place('mat', 'Mat' + (i + 1), bbox(x - 0.915, 0, z - 0.305, x + 0.915, 0.006, z + 0.305)); });
-    add('gym.matGrey', box(-2.06, 0, -2.25, -0.23, 0.006, -1.64)); place('mat', 'MatGrey', bbox(-2.06, 0, -2.25, -0.23, 0.006, -1.64));
+    mats4.forEach(([x, z], i) => { shadowDecal(x, z, 1.83, 0.61); add('gym.matNavy', box(x - 0.915, 0, z - 0.305, x + 0.915, 0.006, z + 0.305)); place('mat', 'Mat' + (i + 1), bbox(x - 0.915, 0, z - 0.305, x + 0.915, 0.006, z + 0.305)); });
+    shadowDecal(-1.145, -1.945, 1.83, 0.61);
+    add('gym.matGrey', box(-2.06, 0, -2.25, -0.23, 0.006, -1.64));
+    shadowDecal(1.3, -2.0, 0.6, 0.4); shadowDecal(1.85, -2.0, 0.15, 0.61); shadowDecal(0.0, -4.3, 0.6, 0.22); place('mat', 'MatGrey', bbox(-2.06, 0, -2.25, -0.23, 0.006, -1.64));
     add('gym.matNavy', box(1.0, 0, -2.2, 1.6, 0.012, -1.8));                                                   // folded mat
     add('gym.matNavy', cyl(0.075, 0.075, 0.61, 16), M4([1.85, 0.075, -2.0], [Math.PI / 2, 0, 0]));            // rolled mat
     add('gym.matNavy', cyl(0.11, 0.11, 0.6, 18), M4([0.0, 0.11, -4.3], [0, 0, Math.PI / 2]));               // bolster
     place('mat', 'Rolls', bbox(1.0, 0, -2.31, 1.93, 0.15, -1.69));
-    for (const [x, z, r] of [[-0.45, -0.35, 0.3], [0.55, -0.4, -0.2]]) { add('gym.rubber', box(-0.115, 0, -0.075, 0.115, 0.08, 0.075), M4([x, 0, z], r)); }
+    shadowDecal(0.08, -0.2, 0.18, 0.18);
+    for (const [x, z, r] of [[-0.45, -0.35, 0.3], [0.55, -0.4, -0.2]]) { shadowDecal(x, z, 0.23, 0.15, r); add('gym.rubber', box(-0.115, 0, -0.075, 0.115, 0.08, 0.075), M4([x, 0, z], r)); }
     add('gym.rubber', new THREE.TorusGeometry(0.07, 0.022, 8, 20), M4([0.08, 0.022, -0.2], [Math.PI / 2, 0, 0]));
     for (const [x, z] of [[-1.15, -3.62], [1.35, -1.78], [2.0, -2.3]]) {
       add('steel', cyl(0.035, 0.035, 0.23, 14), M4([x, 0.115, z]));
       add('gym.metalDark', cyl(0.025, 0.03, 0.04, 12), M4([x, 0.25, z]));
-      shadowDecal(x, z, 0.16, 0.16);
+      shadowDecal(x, z, 0.08, 0.08);
     }
     place('prop', 'Blocks', bbox(-0.57, 0, -0.5, 0.67, 0.08, -0.2));
   }
@@ -209,7 +213,7 @@ export async function build(ctx) {
       add('gym.lampShade', sh, M4([x, base + h / 2, z]));
       add('gym.led', new THREE.CircleGeometry(r * 0.96, 20), (() => { const m = M4([x, base + h - 0.02, z], [-Math.PI / 2, 0, 0]); return m; })());
       place('lamp', 'Lamp' + (i + 1), bbox(x - r, 0, z - r, x + r, base + h, z + r));
-      shadowDecal(x, z, r * 3.2, r * 3.2);
+      shadowDecal(x, z, r * 2, r * 2);
     });
   }
 
@@ -234,7 +238,7 @@ export async function build(ctx) {
       if (raise) { add('gym.metalDark', new THREE.TorusGeometry(r * 0.95, 0.008, 6, 20), M4([x, raise, z], [Math.PI / 2, 0, 0])); for (let k = 0; k < 3; k++) { const a = (k / 3) * Math.PI * 2 + 0.4; add('gym.metalDark', box(-0.008, 0, -0.008, 0.008, raise, 0.008), M4([x + Math.cos(a) * r * 0.95, 0, z + Math.sin(a) * r * 0.95])); } }
       add('gym.pot', cyl(r, r * 0.8, h, 20), M4([x, raise + h / 2, z]));
       add('gym.rubber', cyl(r * 0.92, r * 0.92, 0.01, 16), M4([x, raise + h - 0.02, z]));
-      shadowDecal(x, z, r * 3, r * 3);
+      shadowDecal(x, z, r * 2, r * 2);
       return raise + h - 0.02;
     };
     // areca-like palm: arching stalks with paired leaflets
@@ -290,7 +294,7 @@ export async function build(ctx) {
     if (name === 'gym.wallBack') uvFrom(g, (x, y, z) => [(x - xL) / W, y / H]);
     if (name === 'gym.ceiling') uvFrom(g, (x, y, z) => [(x - xL) / W, (z - zB) / D]);
     const m = meshOf(name, g);
-    if (name === 'contactShadow') m.renderOrder = 1;
+    if (name === 'gym.contactShadow') m.renderOrder = 1;
   }
   void rng;
   return { group };

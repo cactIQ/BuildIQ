@@ -10,7 +10,7 @@ export async function build(ctx) {
   const rng = ctx.rng('site');
 
   const names = ['site.paving', 'site.footpath', 'site.road', 'site.lawn', 'kerb', 'plaster', 'trim', 'iron', 'site.facade',
-    'roofDeck', 'site.vcol', 'site.gateIron', 'site.goldLetters', 'site.lampHead', 'site.halo', 'site.lightPool'];
+    'roofDeck', 'site.vcol', 'site.gateIron', 'site.goldLetters', 'site.lampHead', 'site.halo', 'site.lightPool', 'site.drive', 'site.scrub'];
   const mats = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await ctx.M.use(n)])));
 
   /* ----------------------------- helpers ----------------------------- */
@@ -47,6 +47,14 @@ export async function build(ctx) {
   add(util.mergeParts(lawnGeos.map((g) => ({ geometry: g })), { uvTile: 8 }), mats['site.lawn'], 'Site/Ground/Lawn', { cast: false });
   // plot paving (everything inside the plot; amenities/towers sit on top)
   add(util.worldUV(plane(Pl.x[0], Pl.x[1], Pl.z[0], Pl.z[1], 0), 2), mats['site.paving'], 'Site/Ground/Paving', { cast: false });
+  // vehicle drive loop (darker concrete over the pavers): both gate lanes, the cross aisle between the towers, the
+  // north aisle behind Tower R and the parking aisle. Rects [x0, x1, z0, z1]; clear of the towers, pool and clubhouse.
+  const driveRects = [
+    [-19.0, -12.6, -4.0, 41.4], [17.6, 23.4, -38.0, 41.4],            // west / east gate lanes
+    [-49.6, 23.4, -4.0, 3.5], [-49.6, 23.4, -38.0, -31.0],          // cross aisle, north aisle
+    [-49.6, -46.0, -38.0, 10.0],                                        // parking aisle
+  ];
+  add(util.mergeParts(driveRects.map(([x0, x1, z0, z1]) => ({ geometry: plane(x0, x1, z0, z1, 0.003) })), { uvTile: 4 }), mats['site.drive'], 'Site/Ground/Drive', { cast: false });
   // roads at roadLevel
   add(util.mergeParts(S.roads.map((r) => ({ geometry: plane(r.x[0], r.x[1], r.z[0], r.z[1], RL) })), { uvTile: 4 }), mats['site.road'], 'Site/Roads/Asphalt', { cast: false });
   // footpaths (outside the plot) + kerb stones along every road edge
@@ -212,19 +220,32 @@ export async function build(ctx) {
   /* ----------------------------- context neighbours ----------------------------- */
   const crng = ctx.rng('site-context');
   const quad = (p0, p1, h, u0, u1, v1, col) => {
-    // vertical wall quad from p0 to p1 (outward normal = right-hand of p0->p1 seen from above), height h
+    // vertical wall quad from p0 to p1 (outward normal = right-hand of p0->p1 seen from above), height h.
+    // Split at 2.4 m: vertex colour darkens toward the ground (splash grime / ground AO) and slightly under the parapet.
     const g = new THREE.BufferGeometry();
-    const pos = [p0[0], 0, p0[1], p1[0], 0, p1[1], p1[0], h, p1[1], p0[0], h, p0[1]];
+    const ys = [0, Math.min(2.4, h * 0.3), h - 0.6, h], vs = ys.map((y) => (v1 * y) / h), ks = [0.74, 0.97, 1.0, 0.9];
     const dx = p1[0] - p0[0], dz = p1[1] - p0[1], l = Math.hypot(dx, dz), nx = -dz / l, nz = dx / l;
+    const pos = [], nor = [], uv = [], colA = [], idx = [], c = lin(col);
+    ys.forEach((y, i) => {
+      pos.push(p0[0], y, p0[1], p1[0], y, p1[1]); nor.push(nx, 0, nz, nx, 0, nz); uv.push(u0, vs[i], u1, vs[i]);
+      for (let k = 0; k < 2; k++) colA.push(c.r * ks[i], c.g * ks[i], c.b * ks[i]);
+      if (i) { const a = (i - 1) * 2, b = i * 2; idx.push(a, a + 1, b + 1, a, b + 1, b); }
+    });
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute([nx, 0, nz, nx, 0, nz, nx, 0, nz, nx, 0, nz], 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute([u0, 0, u1, 0, u1, v1, u0, v1], 2));
-    const c = lin(col); g.setAttribute('color', new THREE.Float32BufferAttribute([c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b], 3));
-    g.setIndex([0, 1, 2, 0, 2, 3]);
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(colA, 3));
+    g.setIndex(idx);
     return g;
   };
-  S.context.buildings.forEach(([x, z, w, d, floors, col], bi) => {
+  // varied neighbour tints: off-whites, pale pastels, light greys (positions/footprints stay from SPEC)
+  const trng = ctx.rng('site-context-tint');
+  const TINTS = ['#ECE6DA', '#E2D8C6', '#D7DAD6', '#E9D8C2', '#D3DCE0', '#E6D3C6', '#CDD2CA', '#EFE4CC', '#D9CCBC', '#C9CBCB', '#E3E0EF'];
+  S.context.buildings.forEach(([x, z, w, d, floors0, col0], bi) => {
+    const col = trng.chance(0.25) ? col0 : trng.pick(TINTS);
+    const floors = Math.max(2, floors0 + trng.int(-1, 1));
     const H = floors * 3 + 0.3, x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
+    const dark = '#' + lin(col).multiplyScalar(0.62).getHexString();   // parapet-inside / roof-edge AO tone
     const corners = [[x0, z1], [x1, z1], [x1, z0], [x0, z0]];     // CCW seen from above: front (+z) first
     const uOff = crng.int(0, 3) / 4, vOff = crng.int(0, 3) / 4;
     for (let i = 0; i < 4; i++) {
@@ -237,6 +258,10 @@ export async function build(ctx) {
     parts.facade.push({ geometry: wallC(B(x0 - 0.05, H, z0 - 0.05, x1 + 0.05, H + 0.18, z1 + 0.05)) });
     for (const g of [B(x0, H + 0.18, z0, x1, H + ph, z0 + pt), B(x0, H + 0.18, z1 - pt, x1, H + ph, z1), B(x0, H + 0.18, z0 + pt, x0 + pt, H + ph, z1 - pt), B(x1 - pt, H + 0.18, z0 + pt, x1, H + ph, z1 - pt)]) parts.facade.push({ geometry: wallC(g) });
     parts.roof.push({ geometry: plane(x0 + pt, x1 - pt, z0 + pt, z1 - pt, H + 0.18) });
+    // parapet AO: a dark band on the roof hugging the inside of the parapet (reads at aerial distance)
+    const ao = 0.6, yA = H + 0.185, yB = H + 0.2;
+    for (const g of [B(x0 + pt, yA, z0 + pt, x1 - pt, yB, z0 + pt + ao), B(x0 + pt, yA, z1 - pt - ao, x1 - pt, yB, z1 - pt),
+      B(x0 + pt, yA, z0 + pt + ao, x0 + pt + ao, yB, z1 - pt - ao), B(x1 - pt - ao, yA, z0 + pt + ao, x1 - pt, yB, z1 - pt - ao)]) parts.facade.push({ geometry: constUV(paint(g, dark), 0.02, 0.02) });
     // articulation: floor chajja bands (projecting slab edges) on some, a contrasting stair-core strip on the front
     if (crng.chance(0.6)) for (let f = 1; f <= floors; f++) {
       const y = f * 3 - 0.05, o = 0.35;
@@ -297,9 +322,46 @@ export async function build(ctx) {
   const nFp = fps.find((f) => f.id === 'northFpN');
   if (nr && nFp) for (let x = -90; x <= 90; x += 30) streetLamp(x + 15, nr.z[0] - 0.55, 1, `Site/Lamp/S${li++}`);
   // drive / court post lamps (inside the plot, on paving clear of towers and amenities)
-  const driveLamps = [[-5, 35.6], [5, 35.6], [-19, 1.5], [-31, 1.5], [-7, 1.5], [21.5, -4], [21.5, -22], [8, -34.5], [-48.5, 14], [-44.5, -34]];
+  // kept on the paving edges of the drive loop (not in the carriageway)
+  const driveLamps = [[-5, 35.6], [5, 35.6], [-24, 5.6], [-36, 5.6], [-7, 5.6], [16.9, -14], [16.9, -24], [8, -30.2], [-48.5, 14], [-44.5, -30.0]];
   const towerHit = (x, z) => SPEC.towers.some((t) => Math.abs(x - t.c[0]) < t.w / 2 + 1 && Math.abs(z - t.c[1]) < t.d / 2 + 1);
   for (const [x, z] of driveLamps) if (!towerHit(x, z)) postLamp(x, z, `Site/Lamp/P${li++}`);
+
+  /* ----------------------------- off-site scrub ----------------------------- */
+  // Low, cheap mounds (1 instanced draw, 80 tris each) in clumps on the fields near the site (refs B/C scrubland).
+  {
+    const srng = ctx.rng('site-scrub');
+    const proto = new THREE.IcosahedronGeometry(1, 1);
+    const pp = proto.attributes.position, pn = proto.attributes.normal;
+    for (let i = 0; i < pp.count; i++) {        // lumpy, deterministic (shared vertices get the same offset); smooth sphere normals
+      const x = pp.getX(i), y = pp.getY(i), z = pp.getZ(i), k = 1 + 0.18 * Math.sin(x * 5.1 + z * 3.7) * Math.cos(y * 4.3 + x * 2.2);
+      pn.setXYZ(i, x, y, z);
+      pp.setXYZ(i, x * k, y * k, z * k);
+    }
+    const bandsZ = [...S.roads.map((r) => r.z), ...fps.map((f) => f.z)];
+    const blocked = (x, z, r) => (x > Pl.x[0] - 3 - r && x < Pl.x[1] + 3 + r && z > Pl.z[0] - 3 - r && z < Pl.z[1] + 3 + r)
+      || bandsZ.some(([a, b]) => z > a - 2.5 - r && z < b + 2.5 + r)
+      || S.context.buildings.some(([bx, bz, bw, bd]) => Math.abs(x - bx) < bw / 2 + 3 + r && Math.abs(z - bz) < bd / 2 + 3 + r);
+    const shades = ['#4A5631', '#56603A', '#3E4A2A', '#6B6A44', '#7A6E48', '#5D6B3C'];
+    const smats = [], scols = [], sids = [];
+    const clumps = low ? 60 : 150;
+    for (let c = 0; c < clumps; c++) {
+      const cx = srng.range(-230, 230), cz = srng.range(-200, 200);
+      if (blocked(cx, cz, 4)) continue;
+      const n = srng.int(2, 7), base = srng.pick(shades);
+      for (let k = 0; k < n; k++) {
+        const r = srng.range(0.7, 2.2), x = cx + srng.range(-4, 4), z = cz + srng.range(-4, 4);
+        if (blocked(x, z, r)) continue;
+        const sy = r * srng.range(0.45, 0.8), y = -sy * 0.3;
+        smats.push(util.mat([x, y, z], srng.range(0, Math.PI * 2), [r, sy, r * srng.range(0.7, 1.0)]));
+        const cc = new THREE.Color(base).multiplyScalar(srng.range(0.8, 1.15));
+        scols.push(cc);
+        const id = `Site/Scrub/S${String(smats.length - 1).padStart(3, '0')}`; sids.push(id);
+        registry.place({ kind: 'scrub', id, bbox: { min: [x - r * 1.2, 0, z - r * 1.2], max: [x + r * 1.2, y + sy * 1.18, z + r * 1.2] }, supportY: 0, module: 'site' });
+      }
+    }
+    if (smats.length) group.add(util.instanced(proto, mats['site.scrub'], smats, { ids: sids, colors: scols, name: 'Site/Scrub/Mounds', castShadow: false, receiveShadow: true }));
+  }
 
   /* ----------------------------- merge + emit ----------------------------- */
   merged(parts.plaster, mats.plaster, 'Site/Masonry/Plaster', { cast: true }, 2);

@@ -73,4 +73,31 @@ function contextFacade({ size = 1024, seed = 53 } = {}) {
   return { w, h, albedo: al, emissive: em, normal: heightToNormal(hgt, w, h, 3), orm: packORM(w, h, 1, rough, 0) };
 }
 
-export const recipes = { siteGrime, contextFacade };
+/**
+ * Large-format floor tiles (gym; tile metres per image, tileW x tileH units) with a visible dark grout of `grout`
+ * metres (anti-aliased coverage so a 3 mm joint survives mip filtering), slight per-tile tone and a soft cloud.
+ */
+function gymTiles({ size = 1024, tile = 2.4, tileW = 1.2, tileH = 0.6, grout = 0.003, color = '#ABAAA5', seed = 41 } = {}) {
+  const w = size, h = size, base = rgb(color), n = makeNoise(seed);
+  const cols = Math.round(tile / tileW), rows = Math.round(tile / tileH), mpp = tile / w;   // metres per pixel
+  const al = img(w, h), hgt = new Float32Array(w * h), rough = new Float32Array(w * h);
+  const half = grout / 2 + mpp * 0.5;                                // half joint incl. half a pixel of AA
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const u = (x + 0.5) / w, v = (y + 0.5) / h;
+    const cx = Math.floor(u * cols), cy = Math.floor(v * rows);
+    const dx = Math.min(u * cols - cx, cx + 1 - u * cols) * tileW, dy = Math.min(v * rows - cy, cy + 1 - v * rows) * tileH;
+    const dm = Math.min(dx, dy);                                       // metres to the nearest joint centre
+    const cover = clamp01((half + mpp * 0.5 - dm) / mpp);              // 1 in the joint, AA edge
+    const lip = clamp01(1 - (dm - half) / 0.006) * (1 - cover);        // tiny dark arris beside the joint
+    const tone = ((Math.sin((cx * 37 + cy * 101 + seed) * 12.9898) * 43758.5453) % 1 + 1) % 1;
+    const g = n.fbm(u, v, { period: 16, octaves: 4 }) - 0.5;
+    const kt = 1 + (tone - 0.5) * 0.06 + g * 0.1 - lip * 0.08;
+    const k = kt * (1 - cover) + 0.42 * cover;
+    put(al, w, x, y, clamp01(base[0] * k), clamp01(base[1] * k), clamp01(base[2] * k * 0.98));
+    hgt[y * w + x] = -cover - lip * 0.3;
+    rough[y * w + x] = cover > 0.5 ? 0.92 : 0.55 + g * 0.1;
+  }
+  return { w, h, albedo: al, normal: heightToNormal(hgt, w, h, 1.5), orm: packORM(w, h, 1, rough, 0) };
+}
+
+export const recipes = { siteGrime, contextFacade, gymTiles };
