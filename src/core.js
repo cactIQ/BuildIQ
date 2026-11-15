@@ -39,6 +39,8 @@ export async function createApp({ canvas, container = document.body, onProgress 
   if (onProgress) ev.on('progress', onProgress);
   const params = parseParams(location.search, SPEC);
   const t0 = performance.now();
+  const bootMarks = {}; let lastMark = t0;
+  const mark = (name) => { const n = performance.now(); bootMarks[name] = Math.round(n - lastMark); lastMark = n; };
   const tierName = probeTier(params);
   if (tierName === 'none') { ev.emit('fallback', { reason: 'no-webgl2' }); return { on: ev.on, fallback: true, SPEC, params }; }
   const tier = { name: tierName, ...SPEC.quality[tierName] };
@@ -80,7 +82,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
 
   const rng = makeRng(SPEC.global.seed);
   const registry = new Registry();
-  const tex = createTextures({ anisotropy: Math.min(tier.anisotropy, renderer.capabilities.getMaxAnisotropy()) });
+  const tex = createTextures({ anisotropy: Math.min(tier.anisotropy, renderer.capabilities.getMaxAnisotropy()), lowTier: tier.name === 'low' });
   const ctx = { THREE, SPEC, util, rng, registry, tex, tier, renderer, params, M: null, lights: null, scene };
   const M = createMaterialLib(ctx); ctx.M = M;
   defineBaseMaterials(M, SPEC);
@@ -327,6 +329,11 @@ export async function createApp({ canvas, container = document.body, onProgress 
     // materials first (module-owned definition files), then builds in parallel
     const matFiles = [...new Set(list.map((m) => MATERIAL_FILES[m]))];
     await Promise.all(matFiles.map((f) => import(f).then((mm) => mm.define?.(M, SPEC)).catch((e) => console.error('[materials] ' + f, e))));
+    // create every defined material up front, in parallel, so the worker pool generates textures concurrently
+    // (modules awaiting M.use() one by one left most workers idle: ~2x load time)
+    progress(0.12, 'Preparing materials');
+    await Promise.all(M.names().map((n) => M.use(n)));
+    mark('materials');
     let done = 0;
     await Promise.all(list.map(async (name) => {
       const t = performance.now();
@@ -365,7 +372,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
       programs: renderer.info.programs?.length ?? null,
       textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries,
       texMs: tex.stats.reduce((a, b) => a + b.ms, 0), texStats: tex.stats,
-      modules: moduleStats, ttiMs: Math.round(ttiMs), pixelRatio: renderer.getPixelRatio(), dyn,
+      boot: bootMarks, modules: moduleStats, ttiMs: Math.round(ttiMs), pixelRatio: renderer.getPixelRatio(), dyn,
       grounding: v, registryCount: registry.items.length, ...extra,
     };
     window.__report = r;
@@ -424,11 +431,13 @@ export async function createApp({ canvas, container = document.body, onProgress 
   document.addEventListener('visibilitychange', () => { visible = !document.hidden; });
   if ('IntersectionObserver' in window) new IntersectionObserver((es) => { visible = es[0].isIntersecting && !document.hidden; }).observe(canvas);
 
+  mark('start');
   const cloudsTex = await tex.get('clouds', {});
   if (cloudsTex.albedo) { cloudMat.map = cloudsTex.albedo; cloudsTex.albedo.wrapT = THREE.ClampToEdgeWrapping; }
   // SphereGeometry(thetaLength = PI/2) already maps uv.y 1 (zenith) -> 0 (horizon), matching the clouds recipe.
 
   await loadModules();
+  mark('modules');
   progress(0.75, 'Lighting');
 
   // bake env keyframes (same size; switching textures does not recompile)
@@ -446,8 +455,10 @@ export async function createApp({ canvas, container = document.body, onProgress 
   applyDebug(params.debug);
 
   // warm-up: compile, then render every exterior preset once (with shadows) behind the loader
+  mark('env');
   progress(0.85, 'Warming up');
   await renderer.compileAsync(scene, camera);
+  mark('compile');
   const save = { pos: camera.position.clone(), target: controls.target.clone(), lens: { ...lens } };
   for (const [id, p] of Object.entries(SPEC.cameras)) {
     if (p.interior) continue;
@@ -458,6 +469,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
   renderer.shadowMap.needsUpdate = true;
   for (let i = 0; i < 3; i++) { renderer.info.reset(); renderer.render(scene, camera); await new Promise((r) => requestAnimationFrame(r)); }
   if (startInterior) await setView(params.view, { instant: true });
+  mark('warmup');
   readyPrograms = renderer.info.programs?.length || 1;
   ttiMs = performance.now() - t0;
   requestAnimationFrame(frame);

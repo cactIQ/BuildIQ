@@ -7,7 +7,9 @@
 // (row 0 of a recipe image = v 0).
 import * as THREE from 'three';
 
-export function createTextures({ anisotropy = 8, workers = 0 } = {}) {
+const SIZE_CAP = { lawn: 512, asphalt: 512, mosaic: 512, epdm: 512, siteGrime: 512, contextFacade: 512, concrete: 512 };
+
+export function createTextures({ anisotropy = 8, workers = 0, lowTier = false } = {}) {
   const cache = new Map();
   const stats = [];
   const n = workers || Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
@@ -39,12 +41,17 @@ export function createTextures({ anisotropy = 8, workers = 0 } = {}) {
   };
 
   async function get(recipe, params = {}) {
+    // Load-time budget: secondary/background textures are generated at 512 (4x cheaper) unless a size is given;
+    // the low tier caps every 1024+ texture at 512. Hero surfaces (plaster, pavers, tower atlases, deck) keep 1024.
+    const cap = lowTier ? 512 : SIZE_CAP[recipe];
+    if (cap && !('size' in params) && !('w' in params)) params = { ...params, size: cap };
     const key = recipe + JSON.stringify(params);
     if (cache.has(key)) return cache.get(key);
     const p = (async () => {
+      const tReq = performance.now();
       const d = await run(recipe, params);
       if (!d.ok) { console.error('[tex] ' + recipe + ' failed: ' + d.error); return { albedo: null, normal: null, orm: null, alpha: null, emissive: null }; }
-      stats.push({ key: recipe, ms: Math.round(d.ms) });
+      stats.push({ key: recipe, ms: Math.round(d.ms), req: Math.round(tReq), done: Math.round(performance.now()) });
       const out = {};
       for (const k of ['albedo', 'normal', 'orm', 'alpha', 'emissive']) out[k] = d.maps[k] ? mk(d.maps[k], d.w, d.h, k === 'albedo' || k === 'emissive') : null;
       return out;
