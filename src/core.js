@@ -123,7 +123,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
       float h(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719))) * 43758.5453); }
       void main(){
         float y = clamp(vDir.y, -0.1, 1.0);
-        vec3 zen = vec3(0.012,0.018,0.04), hor = vec3(0.06,0.065,0.09), glow = vec3(0.16,0.10,0.06);
+        vec3 zen = vec3(0.018,0.028,0.075), hor = vec3(0.11,0.12,0.18), glow = vec3(0.38,0.19,0.085);   // blue hour (critic ORBIT-002)
         vec3 c = mix(hor, zen, smoothstep(0.0, 0.6, y)) + glow * exp(-max(y,0.0) * 14.0);
         vec3 q = floor(vDir * 420.0); float s = step(0.9965, h(q)) * smoothstep(0.08, 0.35, y);
         c += vec3(s) * (0.6 + 0.4 * h(q + 1.0));
