@@ -22,6 +22,8 @@ const STAGES = {
   'Building amenities': 'Placing amenities', 'Building vegetation': 'Planting the gardens', 'Building props': 'Adding details',
   'Lighting': 'Setting the light', 'Warming up': 'Final touches', 'Welcome': 'Welcome', 'Preparing interior': 'Preparing interior',
 };
+// loader emblem: two classical towers with pediment crowns (outline + clip shape), 100x100 viewBox
+const TOWERS_PATH = 'M26 86V37h2v-3l8.5-6 8.5 6v3h2v49Z M53 86V29h2v-3l8.5-6 8.5 6v3h2v57Z';
 const AMENITY_VIEWS = { pool: 'pool', clubhouse: 'clubhouse', gym: 'gym' };
 const UI_SCALES = [1, 0.85, 1.15, 1.3];
 
@@ -91,18 +93,70 @@ export function mountUI({ root, SPEC, params }) {
   applyScale();
 
   /* ----------------------------- loader ----------------------------- */
+  // v1.9 premium loader (owner samples: large architectural wordmark over the poster + faked-glass progress card).
+  // Spec: docs/loader-compass-prompt.md. Animates transform/opacity only.
   const loaderFill = el('span', { class: 'loader-fill' });
   const loaderCaption = el('p', { class: 'loader-caption', 'aria-live': 'polite', text: t('Loading') });
+  const ldPct = el('span', { class: 'ld-pct', 'aria-hidden': 'true', text: '0%' });
+  const words = String(B.name).trim().split(/\s+/);
+  const wordLines = words.length > 1 ? [words.slice(0, -1).join(' '), words[words.length - 1]] : [words[0]];
   const loader = el('div', { class: 'loader', role: 'status', 'aria-label': t('Loading') }, [
-    el('div', { class: 'loader-inner' }, [
-      el('span', { class: 'diamond', 'aria-hidden': 'true' }),
-      el('h1', { class: 'wordmark', text: B.name }),
-      el('p', { class: 'loader-dev', text: B.developer }),
-      el('div', { class: 'loader-line', 'aria-hidden': 'true' }, [loaderFill]),
-      loaderCaption,
+    el('div', { class: 'ld-scrim', 'aria-hidden': 'true' }),
+    el('div', { class: 'ld-top' }, [el('span', { class: 'diamond-sm', 'aria-hidden': 'true' }), el('span', { class: 'ld-mark', text: B.name })]),
+    el('div', { class: 'ld-hero' }, [
+      el('h1', { class: 'ld-word', 'aria-label': B.name }, wordLines.map((w, i) => el('span', { class: 'ld-line l' + (i + 1) }, [el('span', { class: 'ld-in', 'aria-hidden': 'true', style: `--i:${i}`, text: w })]))),
+      B.tagline ? el('p', { class: 'ld-tag', text: B.tagline }) : null,
+    ]),
+    // v1.10 dynamic emblem (replaces the progress card): two-tower monogram in a slowly turning gold ring; the towers
+    // fill with gold from the ground up as loading progresses (scaleY on a clipped rect = transform only)
+    el('div', { class: 'ld-emblem-wrap' }, [
+      el('div', { class: 'ld-emblem', 'aria-hidden': 'true', html:
+        '<svg viewBox="0 0 100 100" width="100%" height="100%">'
+        + '<defs><clipPath id="ldTowers"><path d="' + TOWERS_PATH + '"/></clipPath></defs>'
+        + '<g class="ld-ring"><circle cx="50" cy="50" r="46" fill="none" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="58 14 6 14" stroke-linecap="round" opacity=".9"/></g>'
+        + '<g class="ld-ring2"><circle cx="50" cy="50" r="41" fill="none" stroke="rgba(243,237,225,.22)" stroke-width=".8" stroke-dasharray="2 5"/></g>'
+        + '<g clip-path="url(#ldTowers)"><rect x="0" y="0" width="100" height="100" fill="rgba(243,237,225,.08)"/>'
+        + '<rect class="ld-rise" x="0" y="14" width="100" height="72" fill="var(--accent)"/></g>'
+        + '<path d="' + TOWERS_PATH + '" fill="none" stroke="var(--accent)" stroke-width="1.1" stroke-linejoin="round"/>'
+        + '<path d="M22 86.5h56" stroke="rgba(243,237,225,.5)" stroke-width=".9"/>'
+        + '</svg>' }),
+      el('div', { class: 'ld-meta' }, [
+        el('p', { class: 'ld-dev', text: B.developer }),
+        el('div', { class: 'ld-row' }, [loaderCaption, ldPct]),
+      ]),
+      el('div', { class: 'loader-line ld-hidden-line', 'aria-hidden': 'true' }, [loaderFill]),
     ]),
   ]);
-  let loaderShown = false, gotProgress = false;
+  const ldRise = loader.querySelector('.ld-rise');
+  if (poster && !(poster.complete && poster.naturalWidth)) loader.classList.add('noposter');
+  poster?.addEventListener('load', () => loader.classList.remove('noposter'));
+  let loaderShown = false, gotProgress = false, attached = false;
+  // time-based eased progress (iGPU-safe: converges in wall time, not frames)
+  let shown = 0, target = 0, pRaf = 0, pLast = 0;
+  const writeFill = () => {
+    loaderFill.style.transform = `scaleX(${shown.toFixed(4)})`;
+    ldRise.style.transform = `scaleY(${Math.max(0.02, shown).toFixed(4)})`;
+    ldPct.textContent = Math.round(shown * 100) + '%';
+  };
+  function pTick(now) {
+    pRaf = 0;
+    const dt = Math.min(0.1, (now - (pLast || now)) / 1000); pLast = now;
+    shown = reduceMotion ? target : shown + (target - shown) * (1 - Math.exp(-dt / 0.12));
+    if (Math.abs(target - shown) < 0.002) shown = target;
+    writeFill();
+    if (shown !== target && loader.isConnected) pRaf = requestAnimationFrame(pTick);
+  }
+  const kickP = () => { if (!pRaf) { pLast = 0; pRaf = requestAnimationFrame(pTick); } };
+  function setP(p, { instant = false } = {}) {
+    if (!gotProgress) {
+      // seed from the creep animation's current value so the bar never jumps back
+      const m = getComputedStyle(loaderFill).transform.match(/matrix\(([^,]+)/);
+      shown = m ? Math.min(1, parseFloat(m[1]) || 0) : 0;
+      gotProgress = true; loader.classList.add('determinate');
+    }
+    target = Math.max(0, Math.min(1, p));
+    if (instant) { cancelAnimationFrame(pRaf); pRaf = 0; shown = target; writeFill(); } else kickP();
+  }
   function showLoader(mini = false) {
     loader.classList.toggle('mini', mini);
     loader.classList.remove('done');
@@ -117,8 +171,8 @@ export function mountUI({ root, SPEC, params }) {
   }
   function welcomeText() { return t.languages.map((l) => (l === t.lang ? t('Welcome') : null)).filter(Boolean).join(' · ') || t('Welcome'); }
   function progress({ p = 0, label = '' } = {}) {
-    if (!gotProgress) { gotProgress = true; loader.classList.add('determinate'); }
-    loaderFill.style.transform = `scaleX(${Math.max(0, Math.min(1, p)).toFixed(3)})`;
+    if (attached) return;            // after attach the interior path owns the (mini) loader
+    setP(p);
     const key = STAGES[label] || (label.startsWith('Building ') ? 'Adding details' : null);
     if (key) loaderCaption.textContent = key === 'Welcome' ? welcomeText() : t(key);
   }
@@ -186,19 +240,16 @@ export function mountUI({ root, SPEC, params }) {
     let presenting = false, blanked = false, busyView = null, hideTagsUntil = 0, tourEnded = false, panelOpen = false;
 
     // crossfade loader + poster to the live canvas
-    loaderFill.style.transform = 'scaleX(1)';
+    setP(1); attached = true;
     loaderCaption.textContent = welcomeText();
-    setTimeout(hideLoader, 450);
+    { const t0 = performance.now(); const waitHide = () => { if (shown >= 0.995 || performance.now() - t0 > 600) hideLoader(); else requestAnimationFrame(waitHide); }; requestAnimationFrame(waitHide); }
     if (poster) { poster.classList.add('fade'); setTimeout(() => poster.remove(), 1000); }
 
     /* --- top bar --- */
     const tourBtn = el('button', { class: 'btn btn-line tour-btn', type: 'button', 'aria-pressed': 'false', onClick: () => (app.tour.playing() ? app.tour.stop() : startTour()) }, [
       el('span', { class: 'ico', html: svg('play') }), el('span', { class: 'lbl', text: t('Tour') }),
     ]);
-    const chips = TOD.map(([label, k]) => el('button', { class: 'chip', type: 'button', 'data-k': k, 'aria-pressed': 'false', text: t(label), onClick: () => { app.setTime(k); } }));
-    const slider = el('input', { class: 'tod-slider', type: 'range', min: 0, max: 1, step: 0.01, value: app.getTime(), 'aria-label': t('Time of day'),
-      onInput: (e) => app.setTime(Number(e.target.value)) });
-    const todGroup = el('div', { class: 'tod', role: 'group', 'aria-label': t('Time of day') }, [...chips, slider]);
+    const todGroup = buildTimeRuler(app);
     const presentBtn = el('button', { class: 'icon-btn present-btn', type: 'button', 'aria-label': t('Presentation') + ' (P)', title: t('Presentation') + ' (P)', html: svg('present'), onClick: () => setPresent(!presenting) });
     const snapBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Snapshot'), title: t('Snapshot'), html: svg('camera'), onClick: snapshot });
     const fsBtn = document.fullscreenEnabled ? el('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Fullscreen'), title: t('Fullscreen'), html: svg('expand'), onClick: toggleFullscreen }) : null;
@@ -211,8 +262,11 @@ export function mountUI({ root, SPEC, params }) {
       el('div', { class: 'brand' }, [el('span', { class: 'diamond-sm', 'aria-hidden': 'true' }), el('div', {}, [
         el('span', { class: 'brand-name', text: B.name }), el('span', { class: 'brand-sub', text: B.developer }),
       ])]),
-      el('div', { class: 'tools' }, [tourBtn, todGroup, el('span', { class: 'sep', 'aria-hidden': 'true' }), langs, minimal ? null : presentBtn, snapBtn, fsBtn, minimal ? null : sizeBtn, infoBtn]),
+      // v1.7 (owner): presentation / snapshot / fullscreen / UI-size buttons removed from the bar (keyboard
+      // shortcuts still work: P presentation, B blank); the time ruler floats on its own at the top centre
+      el('div', { class: 'tools' }, [tourBtn, langs, infoBtn]),
     ]);
+    void presentBtn; void snapBtn; void fsBtn; void sizeBtn;
 
     /* --- view dock --- */
     const dockBtns = {};
@@ -242,7 +296,28 @@ export function mountUI({ root, SPEC, params }) {
     const tagLayer = el('div', { class: 'tags', 'aria-hidden': 'true' });
     const toast = el('div', { class: 'toast', role: 'status', 'aria-live': 'polite' });
     const live = el('div', { class: 'sr-only', 'aria-live': 'polite' });
-    const chrome = el('div', { class: 'chrome' }, [tagLayer, topbar, caption, dock, panel, minCta]);
+    // v1.9 compass (decorative): world north (-z) relative to the camera heading, updated per frame from matrixWorld
+    const compass = el('div', { class: 'compass', 'aria-hidden': 'true', html:
+      '<svg viewBox="0 0 48 48" width="100%" height="100%">'
+      + '<circle cx="24" cy="24" r="21" fill="none" stroke="rgba(243,237,225,.22)" stroke-width="1"/>'
+      + '<g stroke="rgba(243,237,225,.5)" stroke-width="1.2"><path d="M24 4.5v3.5M24 40v3.5M4.5 24h3.5M40 24h3.5"/></g>'
+      + '<g class="compass-rose"><path d="M24 9 L27.6 24 L20.4 24 Z" fill="var(--accent)"/><path d="M24 39 L27.6 24 L20.4 24 Z" fill="rgba(243,237,225,.42)"/>'
+      + '<circle cx="24" cy="24" r="1.8" fill="#0E0D0B" stroke="rgba(243,237,225,.6)" stroke-width=".8"/>'
+      + `<text class="compass-n" x="24" y="7.2" text-anchor="middle" font-size="6.5" font-weight="600" fill="var(--text)" font-family="Inter, sans-serif">${t('N')}</text></g></svg>` });
+    const rose = compass.querySelector('.compass-rose'), nTxt = compass.querySelector('.compass-n');
+    let lastHeadDeg = 1e9;
+    app.on('frame', ({ camera }) => {
+      if (app.isInterior()) return;
+      const e = camera.matrixWorld.elements;
+      let h = Math.hypot(e[8], e[10]) < 0.05 ? Math.atan2(e[4], -e[6]) : Math.atan2(-e[8], e[10]);   // clockwise from north
+      const deg = (h * 180) / Math.PI;
+      let d = Math.abs(deg - lastHeadDeg) % 360; if (d > 180) d = 360 - d;
+      if (d < 0.2) return;
+      lastHeadDeg = deg;
+      rose.setAttribute('transform', `rotate(${(-deg).toFixed(2)} 24 24)`);
+      nTxt.setAttribute('transform', `rotate(${deg.toFixed(2)} 24 7.2)`);          // keep the N upright
+    });
+    const chrome = el('div', { class: 'chrome' }, [tagLayer, topbar, compass, todGroup, caption, dock, panel, minCta]);
     const letterbox = el('div', { class: 'letterbox', 'aria-hidden': 'true' }, [el('span', { class: 'lb-top' }), el('span', { class: 'lb-bot' })]);
     const presentTitle = el('div', { class: 'present-title', 'aria-live': 'polite' });
     const blank = el('div', { class: 'blank', 'aria-label': t('Blank screen') });
@@ -269,15 +344,84 @@ export function mountUI({ root, SPEC, params }) {
 
     // interior lazy-load progress reuses the loader in a compact form
     app.on('progress', ({ p, label }) => {
-      if (label === 'Preparing interior' && p < 1) { busyView = 'gym'; loaderFill.style.transform = 'scaleX(0.15)'; loader.classList.remove('determinate'); loaderCaption.textContent = t('Preparing interior'); showLoader(true); }
-      else if (p >= 1 && loaderShown) { loaderFill.style.transform = 'scaleX(1)'; setTimeout(hideLoader, 200); }
+      if (label === 'Preparing interior' && p < 1) { busyView = 'gym'; setP(0.15, { instant: true }); loader.classList.remove('determinate'); loaderCaption.textContent = t('Preparing interior'); showLoader(true); }
+      else if (p >= 1 && loaderShown) { setP(1, { instant: true }); setTimeout(hideLoader, 200); }
     });
     app.on('error', ({ code }) => { if (code === 'interior') { hideLoader(); say(t('Something went wrong loading the interior.')); } });
 
     /* --- time of day --- */
-    function onTime({ k }) {
-      slider.value = String(k);
-      for (const c of chips) { const on = Math.abs(Number(c.dataset.k) - k) < 0.02; c.classList.toggle('on', on); c.setAttribute('aria-pressed', String(on)); }
+    function onTime({ k }) { todGroup.sync(k); }
+
+    /* v1.7 time ruler (phone-camera zoom style): a fixed centre needle over a sliding tick scale with clock times,
+       a bubble showing the time + phase. Drag / swipe / wheel / arrow keys set a target; the shown time eases toward
+       it every frame (plus release inertia), so the lighting always changes smoothly between phases. */
+    function buildTimeRuler(app) {
+      const KS = TOD.map(([, k]) => k), MINS = [720, 1050, 1140, 1290];        // Day 12:00, Golden 17:30, Dusk 19:00, Night 21:30
+      const lerpPiece = (xs, ys, x) => { let i = 0; while (i < xs.length - 2 && x > xs[i + 1]) i++; const t0 = (x - xs[i]) / (xs[i + 1] - xs[i]); return ys[i] + (ys[i + 1] - ys[i]) * Math.min(1, Math.max(0, t0)); };
+      const kToMin = (k) => lerpPiece(KS, MINS, k), minToK = (m) => lerpPiece(MINS, KS, m);
+      const PX_PER_MIN = 1.15, M0 = MINS[0], M1 = MINS[MINS.length - 1];
+      const fmt = (m) => { m = Math.round(m / 5) * 5; const h = Math.floor(m / 60) % 24, mm = m % 60, h12 = ((h + 11) % 12) + 1; return `${h12}:${String(mm).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+      const phase = (k) => t(k < 0.18 ? 'Day' : k < 0.5 ? 'Golden' : k < 0.82 ? 'Dusk' : 'Night');
+
+      const track = el('div', { class: 'tr-track' });
+      for (let m = M0; m <= M1; m += 15) {
+        const x = (m - M0) * PX_PER_MIN, major = m % 60 === 0;
+        track.append(el('span', { class: 'tr-tick' + (major ? ' major' : m % 30 === 0 ? ' half' : ''), style: `left:${x}px` }));
+        if (major) track.append(el('span', { class: 'tr-lbl', style: `left:${x}px`, text: fmt(m).replace(':00', '') }));
+      }
+      for (const [label, k] of TOD) {
+        const x = (kToMin(k) - M0) * PX_PER_MIN;
+        track.append(el('button', { class: 'tr-stop', type: 'button', tabindex: '-1', style: `left:${x}px`, title: t(label), 'aria-label': t(label), onClick: (e) => { e.stopPropagation(); goTo(k); } }));
+      }
+      const time = el('span', { class: 'tr-time' }), ph = el('span', { class: 'tr-phase' });
+      const root = el('div', { class: 'tod-ruler', role: 'slider', tabindex: '0', 'aria-label': t('Time of day'), 'aria-valuemin': '0', 'aria-valuemax': '1' }, [
+        el('div', { class: 'tr-bubble' }, [time, ph]),
+        el('div', { class: 'tr-window' }, [track, el('span', { class: 'tr-needle', 'aria-hidden': 'true' })]),
+      ]);
+
+      let shown = app.getTime(), target = shown, vel = 0, raf = 0, dragging = false, lastX = 0, lastT = 0, selfSet = false;
+      const render = (k) => {
+        const m = kToMin(k);
+        track.style.transform = `translateX(${-(m - M0) * PX_PER_MIN}px)`;
+        time.textContent = fmt(m); ph.textContent = phase(k);
+        root.setAttribute('aria-valuenow', k.toFixed(2)); root.setAttribute('aria-valuetext', `${fmt(m)}, ${phase(k)}`);
+      };
+      const tick = () => {
+        raf = 0;
+        if (!dragging && Math.abs(vel) > 1e-4) { target = Math.min(1, Math.max(0, target + vel)); vel *= 0.9; }   // release inertia
+        const d = target - shown;
+        shown = Math.abs(d) < 5e-4 ? target : shown + d * (reduceMotion ? 1 : 0.14);
+        render(shown);
+        selfSet = true; app.setTime(shown); selfSet = false;                 // our own 'time' echo must not reset target
+        if (shown !== target || Math.abs(vel) > 1e-4) raf = requestAnimationFrame(tick);
+      };
+      const kick = () => { if (!raf) raf = requestAnimationFrame(tick); };
+      function goTo(k) { vel = 0; target = Math.min(1, Math.max(0, k)); app.tour.stop(); kick(); }
+      const minStep = (dm) => minToK(Math.min(M1, Math.max(M0, kToMin(target) + dm)));
+
+      root.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || e.target.closest('.tr-stop')) return;
+        dragging = true; vel = 0; lastX = e.clientX; lastT = performance.now();
+        root.setPointerCapture(e.pointerId); root.classList.add('drag'); app.tour.stop();
+      });
+      root.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - lastX, now = performance.now();
+        const k2 = minStep(-dx / PX_PER_MIN);
+        vel = 0.5 * vel + 0.5 * (k2 - target) * Math.min(1, 16 / Math.max(1, now - lastT));
+        target = k2; lastX = e.clientX; lastT = now; kick();
+      });
+      const end = () => { if (!dragging) return; dragging = false; root.classList.remove('drag'); kick(); };
+      root.addEventListener('pointerup', end); root.addEventListener('pointercancel', end);
+      root.addEventListener('wheel', (e) => { e.preventDefault(); vel = 0; target = minStep((e.deltaY + e.deltaX) * 0.35); app.tour.stop(); kick(); }, { passive: false });
+      root.addEventListener('keydown', (e) => {
+        const step = { ArrowRight: 15, ArrowUp: 15, ArrowLeft: -15, ArrowDown: -15, PageUp: 60, PageDown: -60 }[e.key];
+        if (step) { e.preventDefault(); e.stopPropagation(); vel = 0; target = minStep(step); kick(); }
+        if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); goTo(e.key === 'Home' ? 0 : 1); }
+      });
+      root.sync = (k) => { if (!selfSet && !raf && !dragging) { shown = target = k; render(k); } };   // external changes (embed API, presets)
+      render(shown);
+      return root;
     }
     app.on('time', onTime);
     onTime({ k: app.getTime() });
@@ -286,7 +430,7 @@ export function mountUI({ root, SPEC, params }) {
     let capTimer = 0;
     function showCaption(text) { clearTimeout(capTimer); capText.textContent = t(text); caption.classList.add('show'); }
     function hideCaption(delay = 0) { clearTimeout(capTimer); capTimer = setTimeout(() => caption.classList.remove('show'), delay); }
-    function startTour() { if (app.isInterior()) app.setView('hero', { instant: true }); app.tour.play(); }
+    function startTour(opts) { if (app.isInterior()) app.setView('hero', { instant: true }); app.tour.play(opts); }
     app.on('tour', ({ playing }) => {
       tourBtn.setAttribute('aria-pressed', String(playing));
       tourBtn.classList.toggle('on', playing);
@@ -310,13 +454,15 @@ export function mountUI({ root, SPEC, params }) {
     canvas.addEventListener('pointerdown', stopTour);
     // gentle attract mode: auto-play after a long idle (never with reduced motion, in embeds or when presenting)
     let idleTimer = 0;
-    const IDLE_MS = 75000;
+    // v1.6: 30 s of inactivity starts a slow, endless cinematic tour (any input stops it and re-arms the timer)
+    const IDLE_MS = 30000;
     const armIdle = () => {
       clearTimeout(idleTimer);
       if (reduceMotion || params.embed || params.freeze) return;
-      idleTimer = setTimeout(() => { if (!presenting && !app.tour.playing() && !app.isInterior() && !document.hidden) startTour(); }, IDLE_MS);
+      idleTimer = setTimeout(() => { if (!presenting && !app.tour.playing() && !document.hidden) startTour({ loop: true }); }, IDLE_MS);
     };
-    for (const e of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(e, armIdle, { passive: true });
+    for (const e of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) addEventListener(e, armIdle, { passive: true });
+    app.on('tour', ({ playing }) => { if (!playing) armIdle(); });
     armIdle();
 
     /* --- floating tags --- */
@@ -343,7 +489,7 @@ export function mountUI({ root, SPEC, params }) {
         for (const a of anchors) { a.w = a.plate.offsetWidth; a.h = a.plate.offsetHeight; }
         const r = (n) => (n && n.offsetParent !== null ? n.getBoundingClientRect() : null);
         topLimit = Math.max(topbar.getBoundingClientRect().bottom || 64, todGroup.getBoundingClientRect().bottom || 0) + 6;
-        blockers = [r(dock), panelOpen ? r(panel) : null, r(minCta)].filter(Boolean);
+        blockers = [r(dock), panelOpen ? r(panel) : null, r(minCta), r(compass)].filter(Boolean);
         leader = isPhone() ? 22 : 34;
       });
     }

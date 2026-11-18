@@ -2,7 +2,8 @@
 // flights, tour, module loading, warm-up, reports and the public `app` API used by the UI and embed layers.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Sky } from 'three/addons/objects/Sky.js';
+import { createSkyMaterial, applySky } from './sky.js';
+import { installGrade } from './grade.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import SPEC from './spec/index.js';
 import { parseParams, resolutionScale, dynResStep, shiftLens, presetTanV, todBlend, easeInOutCubic } from './params.js';
@@ -49,7 +50,8 @@ export async function createApp({ canvas, container = document.body, onProgress 
   /* ----------------------------- renderer ----------------------------- */
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', alpha: false, stencil: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.NeutralToneMapping;
+  installGrade();                                  // v1.2: Neutral/ACES blend + saturation/contrast grade (src/grade.js)
+  renderer.toneMapping = THREE.CustomToneMapping;
   renderer.toneMappingExposure = 1;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -96,9 +98,10 @@ export async function createApp({ canvas, container = document.body, onProgress 
   const hemi = new THREE.HemisphereLight(0xBFD4FF, 0x6B5E4A, 0);
   scene.add(hemi);
   const pointPool = [];
-  for (let i = 0; i < 4; i++) { const p = new THREE.PointLight(0xffc27a, 0, 30, 2); p.castShadow = false; p.position.set(0, -50, 0); scene.add(p); pointPool.push({ light: p, owner: null }); }
+  // v1.5: 8 pooled lights (pool, 2 gates, 2 lobbies, clubhouse, plaza, parking); fixed at boot -> no recompiles
+  for (let i = 0; i < 8; i++) { const p = new THREE.PointLight(0xffc27a, 0, 30, 2); p.castShadow = false; p.position.set(0, -50, 0); scene.add(p); pointPool.push({ light: p, owner: null }); }
   ctx.lights = {
-    /** Claim a pooled point light (max 4). Set colour/position/distance; intensity is scaled by night factor * base. */
+    /** Claim a pooled point light (max 8). Set colour/position/distance; intensity is scaled by night factor * base. */
     claim(owner, { color = 0xffc27a, position = [0, 3, 0], distance = 30, intensity = 10 } = {}) {
       const slot = pointPool.find((s) => !s.owner);
       if (!slot) { console.error('[lights] pool exhausted by ' + owner); return null; }
@@ -108,33 +111,13 @@ export async function createApp({ canvas, container = document.body, onProgress 
   };
 
   /* ----------------------------- sky, clouds, night dome ----------------------------- */
-  const sky = new Sky(); sky.scale.setScalar(2000); sky.name = 'Sky';
-  Object.assign(sky.material.uniforms.turbidity, { value: SPEC.global.sky.turbidity });
-  sky.material.uniforms.rayleigh.value = SPEC.global.sky.rayleigh;
-  sky.material.uniforms.mieCoefficient.value = SPEC.global.sky.mieCoefficient;
-  sky.material.uniforms.mieDirectionalG.value = SPEC.global.sky.mieDirectionalG;
+  // v1.1: art-directed clean-air sky (src/sky.js) replaces Preetham + the night dome; one program for all keyframes
+  const skyMat = createSkyMaterial();
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(1900, 48, 24), skyMat); sky.name = 'Sky'; sky.renderOrder = -2; sky.frustumCulled = false;
   scene.add(sky);
+  const nightDome = sky;   // legacy name kept for applyDebug
 
-  const nightMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
-    uniforms: { uOpacity: { value: 0 } },
-    vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: `varying vec3 vDir; uniform float uOpacity;
-      float h(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719))) * 43758.5453); }
-      void main(){
-        float y = clamp(vDir.y, -0.1, 1.0);
-        vec3 zen = vec3(0.018,0.028,0.075), hor = vec3(0.11,0.12,0.18), glow = vec3(0.38,0.19,0.085);   // blue hour (critic ORBIT-002)
-        vec3 c = mix(hor, zen, smoothstep(0.0, 0.6, y)) + glow * exp(-max(y,0.0) * 14.0);
-        vec3 q = floor(vDir * 420.0); float s = step(0.9965, h(q)) * smoothstep(0.08, 0.35, y);
-        c += vec3(s) * (0.6 + 0.4 * h(q + 1.0));
-        gl_FragColor = vec4(c, uOpacity);
-        #include <colorspace_fragment>
-      }`,
-  });
-  const nightDome = new THREE.Mesh(new THREE.SphereGeometry(1800, 32, 16), nightMat); nightDome.name = 'NightDome'; nightDome.renderOrder = -1;
-  scene.add(nightDome);
-
-  const cloudMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.BackSide, fog: false, color: 0xffffff, opacity: 0.9 });
+  const cloudMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.BackSide, fog: false, color: 0xffffff, opacity: 0.6 });
   const cloudDome = new THREE.Mesh(new THREE.SphereGeometry(1700, 48, 12, 0, Math.PI * 2, 0, Math.PI / 2), cloudMat);
   cloudDome.name = 'Clouds'; cloudDome.renderOrder = 0;
   scene.add(cloudDome);
@@ -144,10 +127,9 @@ export async function createApp({ canvas, container = document.body, onProgress 
   /* ----------------------------- environment keyframes (PMREM) ----------------------------- */
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene();
-  const envSky = new Sky(); envSky.scale.setScalar(10);
-  for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG']) envSky.material.uniforms[k].value = sky.material.uniforms[k].value;
+  const envSkyMat = createSkyMaterial();
+  const envSky = new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16), envSkyMat); envSky.renderOrder = -2;
   envScene.add(envSky);
-  const envNight = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 12), nightMat.clone()); envScene.add(envNight);
   const envGround = new THREE.Mesh(new THREE.CircleGeometry(40, 32), new THREE.MeshBasicMaterial({ color: 0x6f6a62 }));
   envGround.rotation.x = -Math.PI / 2; envGround.position.y = -1.2; envScene.add(envGround);
   const silhouette = tex.canvas('envSilhouette', 1024, 128, (g, w, h) => {
@@ -161,25 +143,39 @@ export async function createApp({ canvas, container = document.body, onProgress 
 
   // far treeline: a fogged silhouette ring gives a believable horizon beyond the modelled context (1 draw)
   const ftl = SPEC.site.farTreeline || { radius: 900, height: 38 };
-  const ftlTex = silhouette.clone(); ftlTex.wrapS = THREE.RepeatWrapping; ftlTex.repeat.set(9, 1); ftlTex.needsUpdate = true;
-  const farTreeMat = new THREE.MeshBasicMaterial({ map: ftlTex, alphaTest: 0.35, side: THREE.BackSide, color: 0x3d5a34, fog: true });
+  // v1.1: trees-only canopy (two depth layers of overlapping crowns + a continuous base) - no blocky "cardboard" shapes
+  const ftlTex = tex.canvas('farTrees', 2048, 128, (g, w, h) => {
+    const r = util.mulberry32(4242);
+    g.clearRect(0, 0, w, h); g.fillStyle = '#ffffff';
+    g.fillRect(0, h - 22, w, 22);
+    for (const [step, base, amp, rad] of [[9, 26, 22, 9], [6, 18, 14, 7]]) {
+      for (let x = -10; x < w + 10; x += step * (0.6 + r() * 0.8)) {
+        const hh = base + r() * amp, rr = rad * (0.7 + r() * 0.7);
+        g.beginPath(); g.arc(x, h - hh, rr, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.arc(x + rr * 0.7, h - hh + rr * 0.35, rr * 0.8, 0, Math.PI * 2); g.fill();
+        g.fillRect(x - rr, h - hh, rr * 2, hh);
+      }
+    }
+  }, { srgb: true });
+  ftlTex.wrapS = THREE.RepeatWrapping; ftlTex.repeat.set(6, 1); ftlTex.needsUpdate = true;
+  // unlit ring: its tint is driven per keyframe (aerial-perspective blue-green by day, near-black at night)
+  const farTreeMat = new THREE.MeshBasicMaterial({ map: ftlTex, alphaTest: 0.35, side: THREE.BackSide, color: 0x7E9A86, fog: true });
   const farTrees = new THREE.Mesh(new THREE.CylinderGeometry(ftl.radius, ftl.radius, ftl.height, 96, 1, true), farTreeMat);
   farTrees.position.y = ftl.height / 2 - 1; farTrees.name = 'FarTreeline'; farTrees.renderOrder = 1;
   scene.add(farTrees);
-  const envMaps = {};
+  const envMaps = [], ENV_STEPS = 8;
 
   /* ----------------------------- time of day ----------------------------- */
   const kfs = SPEC.global.timeOfDay.keyframes;
   let k = params.tod, todState = todBlend(kfs, k);
-  const sunDir = new THREE.Vector3();
+  const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3();
   const dirFrom = (elevDeg, azimDeg, out) => { const e = THREE.MathUtils.degToRad(elevDeg), a = THREE.MathUtils.degToRad(azimDeg); return out.set(Math.sin(a) * Math.cos(e), Math.sin(e), -Math.cos(a) * Math.cos(e)).normalize(); };
   const lerpColor = (ca, cb, t) => new THREE.Color(ca).lerp(new THREE.Color(cb), t);
   const kfById = Object.fromEntries(kfs.map((x) => [x.id, x]));
 
-  function setSkyFor(state, skyMesh, nightMaterial) {
+  function setSkyFor(state, mat, a, b, opts) {
     const d = dirFrom(state.skyElev, state.sunAzim, new THREE.Vector3());
-    skyMesh.material.uniforms.sunPosition.value.copy(d);
-    nightMaterial.uniforms.uOpacity.value = state.nightDome;
+    applySky(mat, a, b, state.t ?? 0, d, opts);
   }
 
   const shadowBox = new THREE.Box3(new THREE.Vector3(-85, 0, -75), new THREE.Vector3(85, 56, 75));
@@ -198,31 +194,45 @@ export async function createApp({ canvas, container = document.body, onProgress 
     cam.updateProjectionMatrix();
   }
 
-  let shadowTimer = 0;
+  let shadowTimer = 0, lastShadowAt = 0;
   function applyTime(newK, { immediateShadow = false } = {}) {
     k = Math.min(1, Math.max(0, newK));
     const s = todState = todBlend(kfs, k);
     const a = kfById[s.a], b = kfById[s.b];
     // sun: clamp elevation >= 12 deg; fade intensity below via keyframe values
     // curated views may art-direct the sun azimuth (archviz practice); free orbit uses the keyframe azimuth
-    dirFrom(Math.max(12, viewSun?.elev ?? s.sunElev), viewSun?.azim ?? s.sunAzim, sunDir);
+    // art-directed view sun: azimuth from the view; elevation never lower than ~80 % of the keyframe's, so a
+    // curated low "golden" sun does not turn midday into a long-shadow evening (v1.1)
+    dirFrom(Math.max(12, viewSun ? Math.max(viewSun.elev, s.sunElev * 0.8) : s.sunElev), viewSun?.azim ?? s.sunAzim, sunDir);
+    // v1.2 moonlight: after dusk the key light swings to the moon (its own direction, consistent with the visible
+    // moon in the sky) instead of re-using the art-directed sun azimuth
+    const mn = SPEC.global.timeOfDay.moon, mw = THREE.MathUtils.smoothstep(s.night, 0.6, 0.95);
+    dirFrom(mn.elev, mn.azim, moonDir);
+    if (mw > 0) sunDir.lerp(moonDir, mw).normalize();
+    dirFrom(mn.disc?.elev ?? mn.elev, mn.disc?.azim ?? mn.azim, skyMat.uniforms.uMoonDir.value);
     sun.color.copy(lerpColor(a.sunColor, b.sunColor, s.t));
     sun.intensity = s.sunI;
     hemi.intensity = s.hemi;
+    hemi.color.copy(lerpColor(a.hemiSky, b.hemiSky, s.t)); hemi.groundColor.copy(lerpColor(a.hemiGround, b.hemiGround, s.t));
     renderer.toneMappingExposure = s.exposure;
     scene.fog.color.copy(lerpColor(a.fogColor, b.fogColor, s.t)); scene.fog.density = s.fog;
     // the visible sky's sun glow follows an art-directed view sun (env keyframes stay generic)
-    setSkyFor(viewSun ? { ...s, sunAzim: viewSun.azim } : s, sky, nightMat);
-    cloudMat.color.copy(lerpColor('#ffffff', '#3a3f52', Math.min(1, s.night * 1.2))).lerp(new THREE.Color('#ffd2a8'), k > 0.15 && k < 0.8 ? 0.35 * (1 - Math.abs(k - 0.45) / 0.35) : 0);
-    cloudMat.opacity = 0.85 - 0.45 * s.night;
+    setSkyFor(viewSun ? { ...s, sunAzim: viewSun.azim } : s, skyMat, a, b);
+    farTreeMat.color.copy(lerpColor(a.farTree, b.farTree, s.t));
+    // fair-weather cumulus: white by day, warm-lit at golden/dusk, faint blue-grey at night
+    // v1.6: per-keyframe cloud colour (white -> peach -> dusk violet -> night blue-grey)
+    cloudMat.color.copy(lerpColor(a.cloud || '#ffffff', b.cloud || '#ffffff', s.t));
+    cloudMat.opacity = THREE.MathUtils.lerp(a.cloudA ?? 0.6, b.cloudA ?? 0.6, s.t);
     // environment: nearest pre-baked keyframe (same size => no recompile); intensity lerped
-    if (envMaps[s.nearest]) scene.environment = envMaps[s.nearest];
+    const envI = envMaps[Math.round(k * ENV_STEPS)]; if (envI) scene.environment = envI;
     scene.environmentIntensity = s.envI;
     for (const sl of pointPool) if (sl.owner) sl.light.intensity = (sl.base || 10) * s.night;
     fitShadow();
+    // v1.7: shadows follow the sun continuously while scrubbing (throttled to ~30 Hz), plus one settle update
     clearTimeout(shadowTimer);
-    if (immediateShadow) renderer.shadowMap.needsUpdate = true;
-    else shadowTimer = setTimeout(() => { renderer.shadowMap.needsUpdate = true; }, 150);
+    const nowT = performance.now();
+    if (immediateShadow || nowT - lastShadowAt > 33) { renderer.shadowMap.needsUpdate = true; lastShadowAt = nowT; }
+    shadowTimer = setTimeout(() => { renderer.shadowMap.needsUpdate = true; }, 60);
     for (const m of modules) m.onTimeOfDay?.(k, s);
     ev.emit('time', { k, state: s });
   }
@@ -286,11 +296,11 @@ export async function createApp({ canvas, container = document.body, onProgress 
         } catch (err) { console.error('[gym]', err); ev.emit('error', { code: 'interior' }); return false; }
         ev.emit('progress', { p: 1, label: '' });
       }
-      activeInterior = interior; renderer.toneMapping = THREE.NeutralToneMapping;   // AgX greyed the warm walls (round 1)
+      activeInterior = interior; renderer.toneMapping = THREE.CustomToneMapping;   // same graded curve inside: no recompile
       // interior: look-around from a fixed spot (exterior orbit limits would push the camera through the walls)
       controls.minDistance = 0.05; controls.maxDistance = 0.3; controls.enablePan = false; controls.enableZoom = false;
     } else {
-      activeInterior = null; renderer.toneMapping = THREE.NeutralToneMapping;
+      activeInterior = null; renderer.toneMapping = THREE.CustomToneMapping;
       controls.minDistance = SPEC.orbitLimits.minDistance; controls.maxDistance = SPEC.orbitLimits.maxDistance; controls.enablePan = true; controls.enableZoom = true;
     }
     currentView = id;
@@ -304,20 +314,35 @@ export async function createApp({ canvas, container = document.body, onProgress 
   }
 
   /* ----------------------------- tour ----------------------------- */
+  // v1.6 cinematic tour: slow eased flights, a long dwell per view with a smooth eased orbit (alternating direction,
+  // gentle for close/level views), optional endless loop (idle "attract" mode).
   let tour = null;
-  function tourPlay() { tour = { i: 0, dwell: 0, phase: 'fly' }; setView(SPEC.tour[0]); ev.emit('tour', { playing: true }); }
+  const TOUR = { fly: 4.8, dwell: 11, orbitDeg: 26, levelOrbitDeg: 9 };
+  function tourPlay({ loop = false } = {}) {
+    tour = { i: 0, dwell: 0, loop, dir: 1, prevA: 0 };
+    setView(SPEC.tour[0], { duration: TOUR.fly });
+    ev.emit('tour', { playing: true, loop });
+  }
   function tourStop() { if (tour) { tour = null; ev.emit('tour', { playing: false }); } }
   function tourTick(dt) {
     if (!tour) return;
-    if (flight) return;
+    if (flight) { tour.prevA = 0; return; }
     tour.dwell += dt;
-    // gentle drift while dwelling (orbit around target)
-    const off = camera.position.clone().sub(controls.target); off.applyAxisAngle(new THREE.Vector3(0, 1, 0), dt * 0.035); camera.position.copy(controls.target).add(off);
-    if (tour.dwell > 6.5) {
-      tour.i++; tour.dwell = 0;
-      if (tour.i >= SPEC.tour.length) { tourStop(); ev.emit('tourEnd', {}); return; }
+    // eased orbit around the target: total sweep per dwell, smoothstep so it starts and ends at rest
+    const p = SPEC.cameras[SPEC.tour[tour.i]] || {};
+    const sweep = THREE.MathUtils.degToRad(p.shift ? TOUR.levelOrbitDeg : TOUR.orbitDeg) * tour.dir;
+    const u = Math.min(1, tour.dwell / TOUR.dwell), a = sweep * u * u * (3 - 2 * u);
+    const off = camera.position.clone().sub(controls.target); off.applyAxisAngle(new THREE.Vector3(0, 1, 0), a - tour.prevA);
+    camera.position.copy(controls.target).add(off); camera.lookAt(controls.target);
+    tour.prevA = a;
+    if (tour.dwell > TOUR.dwell) {
+      tour.i++; tour.dwell = 0; tour.prevA = 0; tour.dir = -tour.dir;
+      if (tour.i >= SPEC.tour.length) {
+        if (!tour.loop) { tourStop(); ev.emit('tourEnd', {}); return; }
+        tour.i = SPEC.tour[SPEC.tour.length - 1] === SPEC.tour[0] ? 1 : 0;   // seamless loop (tour ends on hero)
+      }
       const id = SPEC.tour[tour.i];             // tour contains exterior views only (spec test enforces)
-      setView(id, { duration: 2.6 });
+      setView(id, { duration: TOUR.fly });
       ev.emit('tourStep', { i: tour.i, id });
     }
   }
@@ -412,6 +437,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
     const target = activeInterior ? activeInterior.scene : scene;
     if (activeInterior) activeInterior.mod.update?.(f); else for (const m of modules) m.update?.(f);
     renderer.info.reset();
+    skyMat.uniforms.uOrigin.value.copy(camera.position);   // sky directions from the eye: horizon stays level at any height
     renderer.render(target, camera);
     ev.emit('frame', f);
     // stats + dynamic resolution (not in shot/freeze mode)
@@ -442,11 +468,22 @@ export async function createApp({ canvas, container = document.body, onProgress 
   progress(0.75, 'Lighting');
 
   // bake env keyframes (same size; switching textures does not recompile)
-  for (const kf of kfs) {
-    setSkyFor(kf, envSky, envNight.material);
-    envGround.material.color.set(kf.night > 0.5 ? 0x15171c : 0xA8977A);   // warm, bright ground bounce (sunlit pavers) keeps shaded cream walls from going grey-green
-    envBandMat.color.set(kf.night > 0.5 ? 0x0e0f12 : 0x4a4a46);
-    envMaps[kf.id] = pmrem.fromScene(envScene, 0.02).texture;
+  // v1.7 smooth time scrubbing: ENV_STEPS+1 environments baked along k from BLENDED keyframe states (was one per
+  // keyframe -> visible lighting pops between phases). Same PMREM size -> switching never recompiles.
+  const hx = (c) => '#' + c.getHexString();
+  const envOf = (kf) => ({ ...kf, sky: { ...kf.sky,
+    zenith: hx(new THREE.Color(kf.sky.zenith).lerp(new THREE.Color(kf.sky.horizon), 0.55)),
+    // lighting only: a saturated mid stop (dusk magenta) would tint every wall -> pulled toward a neutral dusty tone
+    ...(kf.sky.mid ? { mid: hx(new THREE.Color(kf.sky.mid).lerp(new THREE.Color('#9C9AAE'), 0.65)) } : {}) } });
+  for (let i = 0; i <= ENV_STEPS; i++) {
+    // env sky: zenith pulled ~55 % toward the horizon so shade gets a soft cool fill, not saturated blue pavers;
+    // stronger disc in the env gives crisp sun glints on glass
+    const kk = i / ENV_STEPS, st = todBlend(kfs, kk), A = kfById[st.a], Bk = kfById[st.b];
+    setSkyFor(st, envSkyMat, envOf(A), envOf(Bk), { discScale: 3 });
+    const nightW = THREE.MathUtils.smoothstep(st.night, 0.35, 0.75);
+    envGround.material.color.set(0xA8977A).lerp(new THREE.Color(0x15171c), nightW);   // warm ground bounce by day
+    envBandMat.color.set(0x66705F).lerp(new THREE.Color(0x0e0f12), nightW);
+    envMaps[i] = pmrem.fromScene(envScene, 0.02).texture;
   }
   applyTime(k, { immediateShadow: true });
   applySize();

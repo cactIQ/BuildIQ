@@ -135,7 +135,8 @@ export async function build(ctx) {
 
   // Water: basin sheet + kids' inner pool + jacuzzi disc, one transparent mesh. Vertex colours = depth gradient
   // (shallow #3FA6D0 along the walls / in the small pools -> deep #1F5FA8 in the middle of the basin).
-  const wParts = [], SHALLOW = new THREE.Color('#3FA6D0'), DEEP = new THREE.Color('#1F5FA8');
+  // v1.1: richer resort blue (ref D) - the old shallow tone read pale/milky at the pool camera
+  const wParts = [], SHALLOW = new THREE.Color('#2E95C8'), DEEP = new THREE.Color('#164E99');
   const wColour = (g, fn) => {
     const p = g.attributes.position, a = new Float32Array(p.count * 3), c = new THREE.Color();
     for (let i = 0; i < p.count; i++) { c.copy(SHALLOW).lerp(DEEP, fn(p.getX(i), p.getZ(i))); a.set([c.r, c.g, c.b], i * 3); }

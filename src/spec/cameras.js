@@ -16,5 +16,6 @@ export const cameras = {
   gym:       { label: 'Gym', ref: 'F', interior: true, pos: [0, 1.25, 4.6], target: [0, 1.25, -4.75], hfov: 78, shift: { horizonY: 0.505 }, aspect: 1160 / 633, tod: 0.0 },
   orbit:     { label: 'Explore', pos: [70, 55, 110], target: [-5, 12, 0], fov: 40 },
 };
-export const tour = ['hero', 'aerial', 'elevation', 'pool', 'clubhouse', 'aerialN', 'hero'];
+// v1.6 full tour: every exterior view incl. the free-orbit overview (loops seamlessly in idle attract mode)
+export const tour = ['hero', 'aerial', 'elevation', 'pool', 'clubhouse', 'aerialN', 'orbit', 'hero'];
 export const orbitLimits = { minDistance: 12, maxDistance: 320, minPolar: 0.15, maxPolar: 1.48, minTargetY: 0.5 };

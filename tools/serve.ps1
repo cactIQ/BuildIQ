@@ -8,10 +8,15 @@ $mime = @{
   '.json'='application/json'; '.png'='image/png'; '.jpg'='image/jpeg'; '.jpeg'='image/jpeg'; '.svg'='image/svg+xml';
   '.woff2'='font/woff2'; '.wasm'='application/wasm'; '.ico'='image/x-icon'; '.txt'='text/plain'; '.md'='text/plain'
 }
-$listener = New-Object System.Net.HttpListener
+# if the port is busy (another copy already running), try the next ones instead of failing silently
+$listener = $null
+for ($p = $Port; $p -lt $Port + 10; $p++) {
+  $l = New-Object System.Net.HttpListener
+  $l.Prefixes.Add("http://127.0.0.1:$p/")
+  try { $l.Start(); $listener = $l; $Port = $p; break } catch { $l.Close() }
+}
+if (-not $listener) { throw "Could not open a local port between $Port and $($Port + 9)." }
 $prefix = "http://127.0.0.1:$Port/"
-$listener.Prefixes.Add($prefix)
-$listener.Start()
 Write-Host "Serving $root at $prefix  (close this window to stop)"
 if (-not $NoOpen) { Start-Process $prefix }
 $rootFull = [System.IO.Path]::GetFullPath($root)

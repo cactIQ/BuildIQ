@@ -87,7 +87,8 @@ export function define(M, SPEC) {
   M.define('amenities.glazing', async (ctx) => {
     const t = await T(ctx, 'curtain', { size: 512 });
     return new THREE.MeshStandardMaterial({
-      map: t.albedo, color: '#A39E95', roughness: 0.9, metalness: 0, envMapIntensity: 0.6,
+      // v1.1: white sheers (ref E) - the old taupe read as brown wooden blinds behind the glass
+      map: t.albedo, color: '#F4F1EA', roughness: 0.95, metalness: 0, envMapIntensity: 0.6,
       emissiveMap: t.emissive, emissive: new THREE.Color('#FFC890'), emissiveIntensity: 0,
     });
   });
@@ -106,7 +107,9 @@ export function define(M, SPEC) {
       try { g.letterSpacing = '7px'; } catch { /* older canvas */ }
       g.fillText('CLUB HOUSE', w / 2, h / 2 + 5);
     }, { srgb: false });
-    return new THREE.MeshStandardMaterial({ color: '#C08A3E', roughness: 0.35, metalness: 0.8, alphaMap: a, alphaTest: 0.5, envMapIntensity: 1.3, vertexColors: true });
+    // v1.1: brushed brass that reads gold from every angle (metalness 0.8 mirrored the dark ground -> letters looked black)
+    return new THREE.MeshStandardMaterial({ color: '#D9A853', roughness: 0.38, metalness: 0.35, alphaMap: a, alphaTest: 0.5, envMapIntensity: 1.2, vertexColors: true,
+      emissive: new THREE.Color('#B8862F'), emissiveIntensity: 0.22 });
   });
 
   M.define('amenities.soil', async (ctx) => pbr(await T(ctx, 'concrete', { color: '#5B4A38', seed: 71, rough: 0.97 })));
@@ -116,7 +119,10 @@ export function define(M, SPEC) {
   M.define('amenities.play', async () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.05 }));
 
   /* ------------------------------ vegetation ------------------------------ */
-  M.define('vegetation.bark', async (ctx) => pbr(await T(ctx, 'palmBark', {}), { roughness: 1 }));
+  // v1.6 low-poly broadleaf trees (owner: replace leaf-card belt trees): faceted, flat-shaded, vertex colours
+  // (trunk brown, canopy light-top/dark-base) x per-instance tint. No textures, no alpha.
+  M.define('vegetation.lowpoly', async () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.92, metalness: 0, envMapIntensity: 0.8 }));
+  M.define('vegetation.bark',async (ctx) => pbr(await T(ctx, 'palmBark', {}), { roughness: 1 }));
   M.define('vegetation.frond', async (ctx) => {
     const t = await T(ctx, 'palmFrond', {});
     return new THREE.MeshStandardMaterial({

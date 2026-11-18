@@ -95,36 +95,47 @@ const FRAG_BODY = /* glsl */`
 #endif
   float litW = step(0.5, vWin.z);
   float hW = fract(sin(vWin.w * 91.73 + vId * 3.17) * 437.58);
-  float dayBright = step(0.7, hW);                                  // ~30 % of rooms read bright by day
-  float dayL = uDayI * (1.0 - 0.45 * depthF) * (0.8 + 0.4 * vWin.w) * mix(0.5, 1.05, dayBright);
-  vec3 lampC = mix(uWarm, uCool, step(0.62, fract(vWin.w * 7.31)));   // 2700 K / 4000 K mix
-  vec3 warmL = lampC * uLitI * (0.7 + 0.6 * vWin.w) * (1.0 - 0.3 * depthF) * mix(1.0, 0.5, step(0.86, vWin.y));
-  vec3 nightL = mix(vec3(0.01), warmL, litW);
+  // v1.4: no "bright room" lottery - every window reads the same by day
+  float dayL = uDayI * (1.0 - 0.45 * depthF) * (0.8 + 0.4 * vWin.w) * 0.75;
+  // v1.3 (refs: archviz night stills): warm-WHITE interiors (~3000 K, gentle per-home variation, no orange/white
+  // lottery), soft ceiling-to-floor falloff, rooms desaturated at night so wall/sofa colours don't tint the glow
+  vec3 lampC = mix(uWarm, uCool, fract(vWin.w * 7.31) * 0.6);
+  float fall = 0.72 + 0.4 * smoothstep(-0.5, 0.5, vWinUv.y - 0.5);
+  vec3 warmL = lampC * uLitI * (0.85 + 0.3 * vWin.w) * (1.0 - 0.25 * depthF) * fall;
+  vec3 nightL = mix(vec3(0.012, 0.014, 0.02), warmL, litW);
   vec3 Lr = mix(vec3(dayL), nightL, uNight);
-  vec3 icol = room * Lr;
+  float rl = dot(room, vec3(0.2126, 0.7152, 0.0722));
+  vec3 icol = mix(room, vec3(rl) * 1.1, 0.6 * uNight * litW) * Lr;
   // curtain layer 0.25 m behind the glass
   float tc = -0.25 / rd.z;
   vec3 hc = p0 + rd * tc;
   float cx = hc.x / Wsz.x + 0.5;
   float cov = vWin.y;
   float fw = max(fwidth(cx), 1e-3) * 1.5;
-  float drape = max(1.0 - smoothstep(cov * 0.5 - fw, cov * 0.5 + fw, cx), smoothstep(1.0 - cov * 0.5 - fw, 1.0 - cov * 0.5 + fw, cx));
+  float drape = cov > 0.99 ? 1.0 : max(1.0 - smoothstep(cov * 0.5 - fw, cov * 0.5 + fw, cx), smoothstep(1.0 - cov * 0.5 - fw, 1.0 - cov * 0.5 + fw, cx));
   float sheer = smoothstep(0.78, 0.82, cov);
-  float folds = 0.8 + 0.2 * sin(hc.x * 34.0 + vId * 1.7);
-  vec3 cCol = mix(vec3(0.78, 0.72, 0.62), vec3(0.93, 0.91, 0.87), vWin.w) * folds;
+  float folds = 0.92 + 0.08 * sin(hc.x * 34.0 + vId * 1.7);          // v1.4: soft folds (no stripy rectangles)
+  vec3 cCol = vec3(0.9, 0.87, 0.8) * folds;                          // one ivory sheer for every window
   float inY = step(-0.5 * Wsz.y - 0.2, hc.y) * step(hc.y, 0.5 * Wsz.y + 0.4);
   float ca = max(drape * 0.94, sheer * 0.62) * inY * step(0.02, cov);
-  vec3 cL = mix(vec3(uDayI * 1.15), nightL * 1.1, uNight);
+  // v1.4 night: a soothing glow, not a hard bright rectangle - brightest in the middle of the pane, falling off
+  // softly toward the frame (lamp light diffused by the sheer), at a calmer intensity
+  float ex = min(vWinUv.x, 1.0 - vWinUv.x), ey = min(vWinUv.y, 1.0 - vWinUv.y);
+  float soft = mix(0.42, 1.0, smoothstep(0.0, 0.38, ex) * smoothstep(0.0, 0.32, ey));
+  vec3 cL = mix(vec3(uDayI * 2.1), nightL * 0.95 * soft, uNight);
   icol = mix(icol, cCol * cL, ca);
   vec3 gV = normalize(vViewPosition), gN = normalize(normal);
   float NdV = clamp(dot(gN, gV), 0.0, 1.0);
   float Fr = 0.04 + 0.96 * pow(1.0 - NdV, 5.0);                       // what the standard specular path already adds
-  float Fg = 0.04 + 0.56 * pow(1.0 - NdV, 2.2);                       // art-directed glazing Fresnel: 0.04 facing -> 0.6 grazing
-  totalEmissiveRadiance += icol * (1.0 - max(Fr, Fg));
+  // v1.1 marketing glazing: 0.10 facing -> 0.7 grazing (was 0.04 -> 0.6: windows read as matte black holes head-on)
+  float Fg = mix(0.1, 0.7, pow(1.0 - NdV, 2.0));
+  totalEmissiveRadiance += icol * (1.0 - max(Fr, Fg) * (1.0 - 0.55 * uNight));
 #ifdef USE_ENVMAP
-  // art-directed: tilt the reflection normal ~15 deg upward so downward views pick up horizon/sky, not the ground
+  // art-directed: tilt the reflection normal ~15 deg upward so downward views pick up horizon/sky, not the ground;
+  // per-pane gain variation (+-20 %) breaks the uniform sheet look of real glass curtain walls
   vec3 upV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
-  totalEmissiveRadiance += getIBLRadiance(gV, normalize(gN + upV * 0.27), 0.08) * uReflK * max(Fg + 0.05 - Fr * 0.5, 0.0);
+  float paneK = 0.8 + 0.4 * fract(sin(vWin.w * 51.7 + vId * 7.13) * 917.3);
+  totalEmissiveRadiance += getIBLRadiance(gV, normalize(gN + upV * 0.27), 0.06) * uReflK * paneK * max(Fg + 0.05 - Fr * 0.5, 0.0);
 #endif
 }
 `;
@@ -169,15 +180,23 @@ const FAC_FRAG_BODY = /* glsl */`
   }
   float band = 1.0 - smoothstep(0.0, 1.1, below);
   diffuseColor.rgb *= (1.0 - uCornAO * vert * band * sqrt(band)) * uTint;
+  // v1.1 night scheme = architectural accent lighting, not a flood: dim walls, grazing pilaster uplights,
+  // a lit crown (top band + attic/pediments/mumties), warm cornice soffits and wall-washes, stilt uplight pools.
   float hT = clamp((fy - uYR.x) / (uYR.y - uYR.x), 0.0, 1.0);
   float down = smoothstep(0.3, 0.85, -nW.y);
-  float graze = exp(-above / 2.2);
+  float graze = exp(-above / 1.6);
   float up = vert * exp(-max(fy - 0.3, 0.0) / 3.0);
-  float w = 0.1 + 0.06 * hT + vert * graze * (0.4 + 0.6 * vGlow) + vGlow * 0.3 + down * 0.8 + up * 1.4;
-  totalEmissiveRadiance += diffuseColor.rgb * uWashCol * (uWash * w);
+  // v1.3 (refs: archviz night stills): ONE even, soft floodlight wash from ground-mounted fixtures, fading gently
+  // with height - no pilaster stripes or cornice bands (they read as uneven, dirty walls). A modest crown light,
+  // lit soffits under projections and the stilt uplight pools stay.
+  float flood = 0.5 + 0.5 * exp(-max(fy - uYR.x, 0.0) / 26.0);
+  float crown = smoothstep(uYR.y - 2.5, uYR.y + 0.8, fy);
+  float w = vert * flood * 0.42 + (1.0 - vert) * 0.12 + down * 0.35 + up * 0.7 + graze * vert * 0.04;
+  float wc = crown * (0.22 + 0.25 * smoothstep(0.85, 1.2, vGlow));
+  totalEmissiveRadiance += diffuseColor.rgb * uWash * (uWashCol * w + vec3(1.0, 0.9, 0.78) * wc);
 }
 `;
-function facadePatch(m, shared, { cornAO = 0.22, tint = [1, 1, 1] } = {}) {
+function facadePatch(m, shared, { cornAO = 0.32, tint = [1, 1, 1] } = {}) {
   const u = { uWash: { value: 0 }, uCornAO: { value: cornAO }, uTint: { value: new THREE.Vector3(...tint) } };
   m.userData.facade = u;
   m.onBeforeCompile = (sh) => {
@@ -199,7 +218,7 @@ function facadeShared(SPEC) {
   while (ys.length < NC) ys.push(-100);
   return {
     uCornY: { value: ys.slice(0, NC) }, uYR: { value: new THREE.Vector2(baseY, topY) },
-    uWashCol: { value: new THREE.Color('#FFB46B') },   // ~2900 K
+    uWashCol: { value: new THREE.Color('#FFDDB8') },   // ~3300 K soft warm-white floodlight (was 2900 K orange)
   };
 }
 
@@ -207,24 +226,25 @@ export function define(M, SPEC) {
   const P = SPEC.global.palette;
   const shared = facadeShared(SPEC);
 
-  M.define('tower.plaster', async (ctx) => facadePatch(pbr(await ctx.tex.get('plaster', { color: P.body, seed: 7 }), { roughness: 1 }), shared));
+  // v1.3: smoother render (variation/streaks ~ -60 %): the graded curve amplified mottling into a dirty, uneven wall
+  M.define('tower.plaster', async (ctx) => facadePatch(pbr(await ctx.tex.get('plaster', { color: P.body, seed: 7, variation: 0.025, streaks: 0.012, grain: 0.025 }), { roughness: 1 }), shared));
   M.define('tower.trim', async (ctx) => facadePatch(pbr(await ctx.tex.get('plaster', { color: P.trim, seed: 8, variation: 0.03, streaks: 0.02 }), { roughness: 1 }), shared));
   // balcony / loggia recesses and the stilt soffit: same plaster, darkened ~0.6 (fake AO; envMapIntensity is
   // overridden by scene.environmentIntensity for scene-env materials, so it cannot do this job)
-  M.define('tower.recess', async (ctx) => facadePatch(pbr(await ctx.tex.get('plaster', { color: P.body, seed: 7 }), { roughness: 1 }), shared, { cornAO: 0, tint: [0.68, 0.6, 0.56] }));
+  M.define('tower.recess', async (ctx) => facadePatch(pbr(await ctx.tex.get('plaster', { color: P.body, seed: 7, variation: 0.025, streaks: 0.012, grain: 0.025 }), { roughness: 1 }), shared, { cornAO: 0, tint: [0.68, 0.6, 0.56] }));
 
   M.define('tower.glass', async (ctx) => {
     const rooms = await ctx.tex.get('tower.rooms', { w: 2048, h: 1024 });
     if (rooms.albedo) { rooms.albedo.wrapS = rooms.albedo.wrapT = THREE.ClampToEdgeWrapping; rooms.albedo.anisotropy = 1; }
     const parallax = ctx.tier?.windows === 'parallax';
     const m = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(P.glassTint).multiplyScalar(0.12), roughness: 0.08, metalness: 0, envMapIntensity: 1,
+      color: new THREE.Color(P.glassTint).multiplyScalar(0.12), roughness: 0.05, metalness: 0, envMapIntensity: 1,
     });
     const uniforms = {
-      uRooms: { value: rooms.albedo }, uNight: { value: 0 }, uDayI: { value: 0.32 }, uLitI: { value: 2.4 },
-      uWarm: { value: new THREE.Color('#FFA757') },      // ~2700 K
-      uCool: { value: new THREE.Color('#FFD2A1') },      // ~4000 K
-      uReflK: { value: 1.1 },
+      uRooms: { value: rooms.albedo }, uNight: { value: 0 }, uDayI: { value: 0.32 }, uLitI: { value: 1.15 },   // v1.5: all windows lit -> slightly lower per-window (was 1.35)
+      uWarm: { value: new THREE.Color('#FFC88C') },      // ~2900 K soft honey (owner window reference)
+      uCool: { value: new THREE.Color('#FFD9AE') },      // ~3200 K
+      uReflK: { value: 1.35 },
     };
     m.userData.uniforms = uniforms;
     m.onBeforeCompile = (sh) => {

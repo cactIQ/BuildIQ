@@ -53,18 +53,12 @@ diffuseColor.rgb *= uTint;
     float m1 = sFbm(sw / 190.0 + 11.0), m2 = sFbm(sw / 70.0 + 23.0), m3 = sFbm(sw / 31.0 + 37.0), m4 = sFbm(sw / 9.0 + 5.0);
     float l = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
     float tx = clamp(l / 0.17, 0.55, 1.6);                              // texture detail relative to the mean lawn
-    vec3 col = mix(vec3(l), diffuseColor.rgb, 0.8);                    // -20 % saturation
-    float wDry = smoothstep(0.45, 0.56, m1 * 0.55 + m2 * 0.3 + m4 * 0.15);   // fbm ~ N(0.5, 0.1): tight bands = patches
-    col = mix(col, vec3(0.25, 0.23, 0.10) * tx, wDry * 0.85);           // straw / olive dry grass
-    float wOch = smoothstep(0.5, 0.6, m2 * 0.6 + m3 * 0.4) * (0.3 + 0.7 * wDry);
-    col = mix(col, vec3(0.32, 0.22, 0.095) * tx, wOch * 0.7);          // ochre
-    float wScrub = smoothstep(0.53, 0.62, m3 * 0.55 + m4 * 0.45) * (1.0 - wDry * 0.4);
-    col = mix(col, vec3(0.06, 0.08, 0.035) * tx, wScrub * 0.7);         // dark scrub
-    float dRoad = min(abs(sw.y - uDash.x), abs(sw.y - uDash.y)) - 7.2;
-    float wEarth = (1.0 - smoothstep(0.0, 10.0, dRoad)) * smoothstep(0.42, 0.55, m4 * 0.6 + m3 * 0.4);
-    wEarth = max(wEarth, smoothstep(0.6, 0.68, m2 * 0.5 + m4 * 0.5) * 0.85);
-    col = mix(col, vec3(0.23, 0.17, 0.105) * tx, wEarth);              // bare earth
-    col *= 0.62 + 0.75 * m1 * (0.7 + 0.3 * m3);
+    // v1.2 vibrant: fields stay green (post-monsoon), dry/ochre patches only as accents (was -20 % sat, 85 % straw)
+    vec3 col = mix(vec3(l), diffuseColor.rgb, 0.92);
+    // v1.6 (owner review): no dark scrub blotches / bare-earth patches - only broad, soft hue and value drift
+    float wDry = smoothstep(0.4, 0.7, m1 * 0.6 + m2 * 0.4);
+    col = mix(col, vec3(0.27, 0.27, 0.11) * tx, wDry * 0.18);          // gentle sun-dried tint over large areas
+    col *= 0.9 + 0.2 * smoothstep(0.3, 0.7, m1 * 0.7 + m2 * 0.3);      // soft macro brightness (no hard edges)
     diffuseColor.rgb = col;
   }
   vec2 auv = (sw - uRect.xy) / uRect.zw;
@@ -285,15 +279,14 @@ export function define(M, SPEC) {
     m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -1;
     return m;
   });
-  M.define('site.lawn', (ctx) => ground(ctx, ctx.tex.get('lawn', { color: '#6A8443' }), { detail: [9.7, 31, 60], earth: ['#8A7A58', 0], paint: ['#ffffff', 0], field: 1 }));
+  M.define('site.lawn', (ctx) => ground(ctx, ctx.tex.get('lawn', { color: '#5C8F3C' }), { detail: [9.7, 31, 60], earth: ['#8A7A58', 0], paint: ['#ffffff', 0], field: 1 }));
   // low scrub mounds in the off-site fields (instanced, per-instance colour)
   M.define('site.scrub', async () => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, metalness: 0, envMapIntensity: 0.6 }));
 
-  M.define('site.facade', async (ctx) => {
-    const t = await ctx.tex.get('contextFacade', { seed: 53 });
-    const m = pbr(t, { roughness: 1 });
-    m.vertexColors = true;
-    if (t.emissive) { m.emissiveMap = t.emissive; m.emissive = new THREE.Color('#FFD7A0'); m.emissiveIntensity = 0; }
+  M.define('site.facade', async () => {
+    // v1.6 (owner review): background buildings are clean low-poly pastel blocks (vertex colours, flat shaded) - the
+    // photo-like window texture is gone, so they sit back and never compete with the project towers
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, metalness: 0, envMapIntensity: 0.7, emissive: new THREE.Color('#000000') });
     return m;
   });
   M.define('site.vcol', async () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15 }));

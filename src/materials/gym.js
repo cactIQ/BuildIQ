@@ -202,7 +202,8 @@ export function define(M, SPEC) {
     const m = pbr(t, { roughness: 1 });
     if (m.normalMap) m.normalScale.set(0.6, 0.6);
     m.lightMap = lm(ctx, 'gym.floorLM', 384, 488, paintFloor); m.lightMap.channel = 1; m.lightMapIntensity = LIGHTMAP_INTENSITY;
-    m.envMapIntensity = 0.55;
+    // v1.1 (ref F, GYM-004): honed porcelain - soft sheen picks up the cove light + windows; slightly darker body
+    m.roughness = 0.42; m.envMapIntensity = 0.95; m.color.multiplyScalar(0.86);
     return m;
   });
   const wall = (key, painter, w, h) => async (ctx) => {

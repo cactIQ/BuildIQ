@@ -255,13 +255,20 @@ export async function build(ctx) {
     const wallC = (g) => constUV(paint(g, col), 0.02, 0.02);
     // parapet ring, roof slab edge band
     const pt = 0.18, ph = 0.9;
-    parts.facade.push({ geometry: wallC(B(x0 - 0.05, H, z0 - 0.05, x1 + 0.05, H + 0.18, z1 + 0.05)) });
+    // v1.8 root-cause fix for the black roof "glitter": this slab used to be a full-footprint box whose top face was
+    // exactly coplanar with the grey roof plane (both at H + 0.18) -> z-fighting moire, worst at 150-600 m where depth
+    // precision is ~1-5 cm. It is now a perimeter RING (edge band) only, so nothing lies under the roof plane.
+    {
+      const e = 0.05, xi0 = x0 + pt, xi1 = x1 - pt, zi0 = z0 + pt, zi1 = z1 - pt;
+      for (const g of [B(x0 - e, H, z0 - e, x1 + e, H + 0.18, zi0), B(x0 - e, H, zi1, x1 + e, H + 0.18, z1 + e),
+        B(x0 - e, H, zi0, xi0, H + 0.18, zi1), B(xi1, H, zi0, x1 + e, H + 0.18, zi1)]) parts.facade.push({ geometry: wallC(g) });
+    }
     for (const g of [B(x0, H + 0.18, z0, x1, H + ph, z0 + pt), B(x0, H + 0.18, z1 - pt, x1, H + ph, z1), B(x0, H + 0.18, z0 + pt, x0 + pt, H + ph, z1 - pt), B(x1 - pt, H + 0.18, z0 + pt, x1, H + ph, z1 - pt)]) parts.facade.push({ geometry: wallC(g) });
-    parts.roof.push({ geometry: plane(x0 + pt, x1 - pt, z0 + pt, z1 - pt, H + 0.18) });
-    // parapet AO: a dark band on the roof hugging the inside of the parapet (reads at aerial distance)
-    const ao = 0.6, yA = H + 0.185, yB = H + 0.2;
-    for (const g of [B(x0 + pt, yA, z0 + pt, x1 - pt, yB, z0 + pt + ao), B(x0 + pt, yA, z1 - pt - ao, x1 - pt, yB, z1 - pt),
-      B(x0 + pt, yA, z0 + pt + ao, x0 + pt + ao, yB, z1 - pt - ao), B(x1 - pt - ao, yA, z0 + pt + ao, x1 - pt, yB, z1 - pt - ao)]) parts.facade.push({ geometry: constUV(paint(g, dark), 0.02, 0.02) });
+    // v1.9: flat-painted roof in the low-poly facade material. The textured roofDeck (fine grain + normal map) aliased
+    // into dark shimmering speckle at 100 m+, most visible at night under the cool moonlight.
+    parts.facade.push({ geometry: paint(plane(x0 + pt, x1 - pt, z0 + pt, z1 - pt, H + 0.18), '#B9B6AE') });
+    // v1.7: the dark parapet-AO band (1.5 cm above the roof) z-fought at distance -> black "glitter"; removed
+    void dark;
     // articulation: floor chajja bands (projecting slab edges) on some, a contrasting stair-core strip on the front
     if (crng.chance(0.6)) for (let f = 1; f <= floors; f++) {
       const y = f * 3 - 0.05, o = 0.35;
@@ -277,9 +284,10 @@ export async function build(ctx) {
     for (let t = 0; t < tanks; t++) {
       const tx = x + crng.range(-w / 2 + 1.5, w / 2 - 1.5), tz = z + crng.range(-d / 2 + 1.5, d / 2 - 1.5);
       if (Math.abs(tx - mx) < mw / 2 + 0.8 && Math.abs(tz - mz) < md / 2 + 0.8) continue;
-      parts.vcol.push({ geometry: paint(new THREE.CylinderGeometry(0.6, 0.62, 1.25, 12).translate(tx, H + 0.18 + 0.625, tz), crng.chance(0.7) ? '#1B1B1B' : '#E8E4D6') });
+      // v1.7 clean low-poly roofs: pale tanks (black glossy tanks sparkled from the air)
+      parts.facade.push({ geometry: paint(new THREE.CylinderGeometry(0.6, 0.62, 1.25, 8).translate(tx, H + 0.18 + 0.625, tz), crng.chance(0.5) ? '#E8E4D6' : '#CFCBC0') });
     }
-    const solar = bi === 3 || crng.chance(0.3);
+    const solar = (bi === 3 || crng.chance(0.3)) && false;   // v1.7: solar arrays removed from background roofs (glinting dark noise)
     if (solar) {
       const rows = 2, cols = Math.max(2, Math.floor((w - 4) / 1.2));
       for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
@@ -327,6 +335,38 @@ export async function build(ctx) {
   const towerHit = (x, z) => SPEC.towers.some((t) => Math.abs(x - t.c[0]) < t.w / 2 + 1 && Math.abs(z - t.c[1]) < t.d / 2 + 1);
   for (const [x, z] of driveLamps) if (!towerHit(x, z)) postLamp(x, z, `Site/Lamp/P${li++}`);
 
+  // v1.5 landscape lighting: post lamps through the garden / plaza / parking / clubhouse, plus knee-high bollards
+  // along paths and the pool deck. Emissive heads + halos + ground light pools (merged / instanced: no new draws).
+  const bollard = (x, z, id) => {
+    const H = 0.9, col = '#2C2F33';
+    parts.vcol.push({ geometry: paint(new THREE.CylinderGeometry(0.09, 0.1, H - 0.18, 10).translate(x, (H - 0.18) / 2, z), col) });
+    parts.lampHead.push({ geometry: new THREE.CylinderGeometry(0.085, 0.085, 0.14, 10).translate(x, H - 0.11, z) });
+    parts.vcol.push({ geometry: paint(new THREE.CylinderGeometry(0.11, 0.11, 0.04, 10).translate(x, H - 0.02, z), col) });
+    haloPts.push([x, H - 0.1, z]);
+    pools.push([x, 0.006, z, 2.6]);
+    registry.place({ kind: 'lamp', id, bbox: { min: [x - 0.11, 0, z - 0.11], max: [x + 0.11, H, z + 0.11] }, supportY: 0, module: 'site' });
+  };
+  const PZ = S.plaza, CL = S.clubhouse, PK = S.parking[0];
+  const gardenPosts = [
+    // plaza: both long edges + around the lawn and the play circle
+    [31, -8], [31, 10], [31, 24], [50, -8], [50, 10], [50, 24], [29, -27], [51, -27], [36, 36.5], [48, 36.5],
+    // parking aisle
+    ...(PK ? [[PK.x[0] + 1.2, -22], [PK.x[0] + 1.2, -8], [PK.x[0] + 1.2, 4]] : []),
+    // clubhouse forecourt: west corner only (an east lamp sits on the clubhouse camera's sightline; the forecourt
+    // point light covers that side)
+    [CL.c[0] - CL.w / 2 - 2.2, CL.c[1] - CL.d / 2 - 1.6],
+    // tower lobby entrances (front of each tower, on the drive edge)
+    ...SPEC.towers.map((t) => [t.c[0] - 4.5, t.c[1] + t.d / 2 + 2.2]), ...SPEC.towers.map((t) => [t.c[0] + 4.5, t.c[1] + t.d / 2 + 2.2]),
+  ];
+  for (const [x, z] of gardenPosts) if (!towerHit(x, z)) postLamp(x, z, `Site/Lamp/G${li++}`);
+  const bollards = [];
+  for (let x = 27; x <= 55; x += 4) bollards.push([x, -20.3], [x, -33.7]);                 // lawn path edges
+  for (const a of [0, 60, 120, 180, 240, 300]) { const r = (a * Math.PI) / 180; bollards.push([PZ.play.c[0] + Math.cos(r) * 5.6, PZ.play.c[1] + Math.sin(r) * 5.6]); }
+  for (const a of [30, 150, 210, 330]) { const r = (a * Math.PI) / 180; bollards.push([PZ.treeRing.c[0] + Math.cos(r) * 5, PZ.treeRing.c[1] + Math.sin(r) * 5]); }
+  for (let x = -38.5; x <= -23.5; x += 3) bollards.push([x, 41.0 - 0.6]);                  // pool deck south edge
+  for (const g of S.gates) for (const s of [-1, 1]) bollards.push([g.c[0] + s * (g.w / 2 - 1), g.c[1] - g.d / 2 - 1.2]);   // gate inner mouth
+  for (const [x, z] of bollards) if (!towerHit(x, z)) bollard(x, z, `Site/Lamp/L${li++}`);
+
   /* ----------------------------- off-site scrub ----------------------------- */
   // Low, cheap mounds (1 instanced draw, 80 tris each) in clumps on the fields near the site (refs B/C scrubland).
   {
@@ -344,13 +384,19 @@ export async function build(ctx) {
       || S.context.buildings.some(([bx, bz, bw, bd]) => Math.abs(x - bx) < bw / 2 + 3 + r && Math.abs(z - bz) < bd / 2 + 3 + r);
     const shades = ['#4A5631', '#56603A', '#3E4A2A', '#6B6A44', '#7A6E48', '#5D6B3C'];
     const smats = [], scols = [], sids = [];
-    const clumps = low ? 60 : 150;
-    for (let c = 0; c < clumps; c++) {
-      const cx = srng.range(-230, 230), cz = srng.range(-200, 200);
-      if (blocked(cx, cz, 4)) continue;
+    // v1.1: near clumps as before, plus a far ring (230-480 m) of larger tree-scale clumps so the fields between
+    // the site and the horizon read as wooded suburb, not an empty lawn
+    // v1.6 (owner review): scrub mounds removed (read as rocks / blobs); far greenery is low-poly trees (vegetation.js)
+    const clumps = 0, farClumps = 0;
+    for (let c = 0; c < clumps + farClumps; c++) {
+      const far = c >= clumps;
+      let cx, cz;
+      if (!far) { cx = srng.range(-230, 230); cz = srng.range(-200, 200); } else { const a = srng.range(0, Math.PI * 2), d = srng.range(230, 480); cx = Math.cos(a) * d; cz = Math.sin(a) * d; }
+      const sc = far ? srng.range(2.2, 3.4) : 1, spread = 4 * sc;
+      if (blocked(cx, cz, spread)) continue;
       const n = srng.int(2, 7), base = srng.pick(shades);
       for (let k = 0; k < n; k++) {
-        const r = srng.range(0.7, 2.2), x = cx + srng.range(-4, 4), z = cz + srng.range(-4, 4);
+        const r = srng.range(0.7, 2.2) * sc, x = cx + srng.range(-spread, spread), z = cz + srng.range(-spread, spread);
         if (blocked(x, z, r)) continue;
         const sy = r * srng.range(0.45, 0.8), y = -sy * 0.3;
         smats.push(util.mat([x, y, z], srng.range(0, Math.PI * 2), [r, sy, r * srng.range(0.7, 1.0)]));
@@ -369,8 +415,10 @@ export async function build(ctx) {
   merged(parts.kerb, mats.kerb, 'Site/Ground/Kerbs', { cast: false }, 1);
   merged(parts.vcol, mats['site.vcol'], 'Site/Details', { cast: true });
   merged(parts.lampHead, mats['site.lampHead'], 'Site/Lamps/Heads', { cast: false });
-  merged(parts.facade, mats['site.facade'], 'Site/Context/Facades', { cast: true });
-  merged(parts.roof, mats.roofDeck, 'Site/Context/Roofs', { cast: false }, 4);
+  // v1.7: background blocks don't receive shadows - most sit at/over the edge of the fitted shadow map, where
+  // acne / clamped edge texels showed as dark streaks on the roofs
+  merged(parts.facade, mats['site.facade'], 'Site/Context/Facades', { cast: true, receive: false });
+  merged(parts.roof, mats.roofDeck, 'Site/Context/Roofs', { cast: false, receive: false }, 4);
   let halos = null;
   if (haloPts.length) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(haloPts.flat(), 3));
@@ -390,16 +438,27 @@ export async function build(ctx) {
     const l = ctx.lights.claim('site:' + gt.id, { color: 0xffc58a, position: [gt.c[0], 4.2, gt.c[1] + gt.d / 2 + 4.5], distance: 22, intensity: 28 });
     if (l) lights.push(l);
   }
+  // v1.5: real light (not just glow) on the key night areas - tower lobbies, clubhouse forecourt, plaza, parking
+  const keyLights = [
+    ...SPEC.towers.map((t, i) => ['site:lobby' + i, [t.c[0], 3.2, t.c[1] + t.d / 2 + 3], 18, 30]),
+    ['site:clubhouse', [S.clubhouse.c[0], 3.0, S.clubhouse.c[1] - S.clubhouse.d / 2 - 3.5], 16, 26],
+    ['site:plaza', [40.5, 4.0, 6], 26, 34],
+    ...(S.parking[0] ? [['site:parking', [(S.parking[0].x[0] + S.parking[0].x[1]) / 2, 4.5, -10], 24, 30]] : []),
+  ];
+  for (const [id, position, distance, intensity] of keyLights) {
+    const l = ctx.lights.claim(id, { color: 0xffcf96, position, distance, intensity });
+    if (l) lights.push(l);
+  }
 
   const facadeMat = mats['site.facade'], headMat = mats['site.lampHead'], haloMat = mats['site.halo'], poolMat = mats['site.lightPool'];
   return {
     group,
     onTimeOfDay(k, state) {
       const n = state.night || 0;
-      headMat.emissiveIntensity = n * 3.2;
-      haloMat.opacity = Math.min(1, n * 1.1);
-      poolMat.opacity = Math.max(0, n - 0.3) * 0.75;
-      facadeMat.emissiveIntensity = Math.max(0, n - 0.25) * 1.0;   // stays dark through golden hour
+      headMat.emissiveIntensity = n * 4.2;                  // v1.5: brighter landscape lamps
+      haloMat.opacity = Math.min(1, n * 1.25);
+      poolMat.opacity = Math.min(1, Math.max(0, n - 0.3) * 1.35);
+      facadeMat.emissiveIntensity = 0;                      // v1.5 (owner): neighbouring buildings' windows stay dark
     },
     dispose() { group.traverse((o) => o.geometry?.dispose?.()); },
   };

@@ -31,8 +31,9 @@ const common = {
   parapetH: 1.1,
   stiltGrid: 6.0, stiltCol: 0.45,
   sides: {
-    W: { pattern: 'plain', windowStacks: 2 },
-    E: { pattern: 'plain', windowStacks: 2 },
+    // v1.1: refs B/C show flanks as densely fenestrated as the front (was 'plain' + 2 stacks; confirm on drawings)
+    W: { pattern: 'dense' },
+    E: { pattern: 'dense' },
     N: { pattern: 'balconies' },
   },
 };

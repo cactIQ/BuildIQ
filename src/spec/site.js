@@ -55,6 +55,21 @@ export const site = {
       // south-side neighbours sit behind the elevation camera (z > 115) so the ref-A sightline across the road is clear
       [-70, 135, 20, 14, 4, '#D9D3C6'], [10, 140, 18, 16, 3, '#E4DDD0'], [80, 130, 16, 12, 4, '#CFCBC2'],
       [-30, -80, 22, 14, 4, '#E7E1D4'], [30, -85, 16, 14, 3, '#D6D0C2'],
+      // v1.1 outer ring (refs B/C show a built-up suburb, not empty fields): mid-rise blocks at 150-300 m, kept clear
+      // of the road bands; merged into the existing context draws (no new draw calls)
+      [-170, -10, 22, 16, 5, '#E4DDD0'], [-185, 95, 18, 18, 4, '#DCD5C8'], [-160, -120, 24, 14, 6, '#E9E4DA'], [-230, -78, 20, 16, 7, '#D7DAD6'],
+      [160, -10, 20, 16, 5, '#E6DFCF'], [175, 100, 22, 14, 4, '#EFE4CC'], [170, -120, 18, 18, 6, '#D9D3C6'], [240, 20, 24, 16, 7, '#E2D8C6'],
+      [-60, -170, 26, 14, 6, '#E9D8C2'], [50, -165, 20, 18, 5, '#DDD6C8'], [140, -200, 22, 16, 7, '#D3DCE0'], [-140, -200, 20, 16, 5, '#E6D3C6'],
+      [-20, 190, 22, 14, 4, '#ECE6DA'], [110, 200, 20, 16, 5, '#CDD2CA'], [-120, 210, 18, 16, 4, '#E3E0EF'],
+      // distant residential towers (400-650 m) for a skyline behind the hero / elevation / aerial-north views
+      [320, -380, 24, 20, 16, '#E4DED2'], [80, -460, 26, 20, 14, '#DDD8CE'], [-200, -430, 22, 22, 18, '#E8E2D6'], [420, -180, 22, 18, 12, '#D8D6CF'],
+      [-420, -260, 24, 20, 14, '#E2DCD0'], [480, 20, 20, 20, 12, '#E6E0D4'], [-480, 20, 22, 18, 12, '#DAD5CB'], [200, -540, 20, 18, 16, '#E9E4D9'],
+      // companions: towers come in clusters with mid-rise podiums around them (a lone tower in a field reads fake)
+      [355, -395, 20, 18, 12, '#D9D4C9'], [300, -340, 26, 14, 6, '#E6E0D2'], [115, -470, 20, 18, 11, '#E3DED3'], [60, -420, 24, 14, 5, '#D8D2C6'],
+      [-235, -445, 20, 20, 14, '#DCD6CA'], [-170, -400, 26, 16, 6, '#E6E0D2'], [440, -150, 20, 16, 9, '#E4DED2'], [400, -215, 24, 14, 5, '#DAD4C8'],
+      [-445, -225, 20, 18, 10, '#E2DDD2'], [-390, -285, 24, 14, 5, '#D6D1C6'], [505, 55, 20, 18, 9, '#DDD8CE'], [455, -15, 24, 14, 5, '#E7E1D5'],
+      [-505, 55, 20, 18, 10, '#E1DBCF'], [-455, -15, 24, 14, 5, '#D9D3C7'], [235, -560, 20, 18, 12, '#DED9CE'], [170, -505, 24, 14, 6, '#E4DED2'],
+      [280, 160, 22, 16, 6, '#E2DCD0'], [-300, 150, 22, 16, 6, '#DDD7CB'], [320, -80, 22, 16, 7, '#E6E1D6'], [-320, -110, 22, 16, 7, '#DCD7CC'],
     ],
     treeBelts: [
       { x: [-140, -62], z: [-35, 35], density: 0.012 },

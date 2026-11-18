@@ -155,13 +155,14 @@ function solid({ size = 64, color = '#808080', rough = 0.8 } = {}) {
 }
 
 /** Cloud dome (equirect upper hemisphere): white RGB, soft cumulus alpha thinning toward the zenith/horizon. */
-function clouds({ w = 1024, h = 256, seed = 37, cover = 0.48, softness = 0.22 } = {}) {
+function clouds({ w = 1024, h = 256, seed = 37, cover = 0.55, softness = 0.2 } = {}) {
   const n = makeNoise(seed), al = img(w, h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const u = x / w, v = y / h;                 // v=0 horizon .. v=1 zenith
     const stretch = 1 + (1 - v) * 3;             // flatter near the horizon (perspective)
     const f = n.fbm(u, v / stretch * 0.5, { period: 8, octaves: 5, gain: 0.55 });
-    const a = smooth(cover, cover + softness, f) * smooth(0.0, 0.12, v) * (1 - smooth(0.7, 1, v) * 0.6);
+    // v1.1 clean air: scattered fair-weather cumulus, clear low sky (no smog band at the horizon)
+    const a = smooth(cover, cover + softness, f) * smooth(0.06, 0.32, v) * (1 - smooth(0.7, 1, v) * 0.6);
     const shade = 0.82 + 0.18 * smooth(cover, cover + softness * 2, f);   // darker bases
     put(al, w, x, y, shade, shade, shade * 1.0, a);
   }

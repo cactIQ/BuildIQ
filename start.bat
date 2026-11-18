@@ -7,3 +7,8 @@ if %errorlevel%==0 (
   goto :eof
 )
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\serve.ps1
+if errorlevel 1 (
+  echo.
+  echo The viewer could not start. See the message above.
+  pause
+)

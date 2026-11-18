@@ -76,10 +76,47 @@ html.deva #ui { font-family: var(--sans), var(--deva); }
 .pulse { animation: pulse 1s var(--ease) 3; }
 
 /* ---- loader (transform/opacity only) ---- */
-.loader { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; text-align: center;
-  background: radial-gradient(ellipse at 50% 50%, rgba(14,13,11,.72) 0%, rgba(14,13,11,.92) 70%); transition: opacity .7s var(--ease); }
+/* v1.9 premium loader: poster-first, huge architectural wordmark, faked-glass progress card (owner samples) */
+.loader { position: fixed; inset: 0; z-index: 50; background: transparent; transition: opacity .7s var(--ease); overflow: hidden; }
+.loader.noposter { background: radial-gradient(ellipse at 30% 40%, #2A2620 0%, #0E0D0B 75%); }
 .loader.done { opacity: 0; pointer-events: none; }
+.ld-scrim { position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(14,13,11,.82) 0%, rgba(14,13,11,.38) 55%, rgba(14,13,11,.12) 100%),
+              linear-gradient(0deg, rgba(14,13,11,.6) 0%, rgba(14,13,11,0) 40%); }
+.ld-top { position: absolute; top: 0; left: 0; display: flex; align-items: center; gap: .7rem; padding: .75rem 1.25rem; min-height: 3.5rem; box-sizing: border-box; }
+.ld-mark { font: 600 .8125rem var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--text); }
+.ld-hero { position: absolute; left: clamp(1.25rem, 6vw, 5rem); right: 1.25rem; top: 30vh; }
+.ld-word { display: inline-grid; justify-items: end; margin: 0; font-family: var(--sans); color: #fff; line-height: .95; will-change: transform; }
+.ld-line { display: block; overflow: hidden; padding-bottom: .06em; }
+.ld-in { display: block; transform: translateY(105%); animation: ldRise .95s var(--ease) forwards; animation-delay: calc(.15s + var(--i) * .14s); }
+.ld-line.l1 { font-weight: 500; font-size: clamp(2.75rem, 9vw, 7rem); letter-spacing: -.01em; text-transform: uppercase; justify-self: start; }
+.ld-line.l2 { font-weight: 400; font-style: italic; font-size: clamp(2.2rem, 7.2vw, 5.6rem); letter-spacing: .01em; text-transform: uppercase; opacity: .78; }
+.ld-word:has(.l2) { animation: ldDrift 3.5s ease-in-out 1.2s infinite alternate; }
+.ld-tag { max-width: 32rem; margin: 1.4rem 0 0; font: 400 1rem/1.5 var(--sans); color: rgba(243,237,225,.82); opacity: 0; animation: ldFade .9s var(--ease) .6s forwards; }
+@keyframes ldRise { to { transform: translateY(0); } }
+@keyframes ldFade { from { opacity: 0; transform: translateY(.75rem); } to { opacity: 1; transform: none; } }
+@keyframes ldDrift { from { transform: scale(1); } to { transform: scale(1.012); } }
+/* v1.10 dynamic emblem (replaces the progress card): turning gold ring + towers filling with gold as it loads */
+.ld-emblem-wrap { position: absolute; left: clamp(1.25rem, 6vw, 5rem); bottom: 2.5rem; display: flex; align-items: center; gap: 1.25rem;
+  opacity: 0; animation: ldFade .8s var(--ease) .35s forwards; }
+.ld-emblem { width: 7.5rem; height: 7.5rem; flex: none; }
+.ld-emblem svg { overflow: visible; }
+.ld-ring, .ld-ring2, .ld-rise { transform-box: view-box; transform-origin: 50% 50%; }
+.ld-ring { animation: ldSpin 9s linear infinite; }
+.ld-ring2 { animation: ldSpin 16s linear infinite reverse; }
+.ld-rise { transform-box: fill-box; transform-origin: 50% 100%; transform: scaleY(.02); animation: ldCreepY 14s cubic-bezier(.1,.6,.2,1) forwards; }
+.loader.determinate .ld-rise { animation: none; }
+@keyframes ldSpin { to { transform: rotate(360deg); } }
+@keyframes ldCreepY { from { transform: scaleY(.02); } to { transform: scaleY(.85); } }
+.ld-meta { display: grid; gap: .3rem; min-width: 11rem; }
+.ld-dev { margin: 0; font: 600 .8125rem var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--text); }
+.ld-row { display: flex; align-items: baseline; gap: .9rem; }
+.ld-pct { font: 300 1.75rem/1 var(--serif); font-variant-numeric: tabular-nums; color: var(--accent); order: -1; min-width: 3.6ch; }
+.ld-hidden-line { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .loader.mini { background: rgba(14,13,11,.55); }
+.loader.mini .ld-hero, .loader.mini .ld-top, .loader.mini .ld-scrim { display: none; }
+.loader.mini .ld-emblem-wrap { left: 50%; bottom: auto; top: 50%; transform: translate(-50%, -50%); animation: none; opacity: 1; flex-direction: column; text-align: center; }
+.loader.mini .ld-row { justify-content: center; }
 .loader.mini .wordmark, .loader.mini .loader-dev { display: none; }
 .loader-inner { display: grid; justify-items: center; gap: 1rem; padding: 2rem; }
 .loader .diamond { width: 18px; height: 18px; animation: breathe 2.4s ease-in-out infinite; }
@@ -87,11 +124,23 @@ html.deva #ui { font-family: var(--sans), var(--deva); }
 .wordmark { margin: .25rem 0 0; font-family: var(--serif); font-weight: 300; font-size: clamp(2rem, 5vw, 3.4rem); letter-spacing: .04em; line-height: 1.05; }
 .loader-dev { margin: -.4rem 0 .6rem; font-size: .75rem; letter-spacing: .28em; text-transform: uppercase; color: var(--muted); }
 .loader-line { position: relative; width: min(16rem, 60vw); height: 1px; background: rgba(243,237,225,.16); overflow: hidden; }
+
 .loader-fill { position: absolute; inset: 0; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0);
   animation: creep 14s cubic-bezier(.1,.6,.2,1) forwards; }
-.loader.determinate .loader-fill { animation: none; transition: transform .45s var(--ease); }
+.loader.determinate .loader-fill { animation: none; }          /* JS eases the fill (time-based) */
 @keyframes creep { from { transform: scaleX(0); } to { transform: scaleX(.88); } }
-.loader-caption { margin: 0; min-height: 1.2em; font-size: .75rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.loader-caption { margin: 0; min-height: 1.2em; font-size: .8125rem; color: var(--muted); }
+
+/* v1.9 compass (top-left, under the brand block) */
+.chrome > .compass { position: absolute; top: 4.6rem; left: 1.25rem; width: 3rem; height: 3rem; padding: .2rem; box-sizing: border-box;
+  border-radius: 50%; border: 1px solid rgba(243,237,225,.14); pointer-events: none;
+  background: linear-gradient(180deg, rgba(64,60,54,.62), rgba(30,28,25,.72)); box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 8px 22px rgba(0,0,0,.3); }
+body.interior .chrome > .compass { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ld-in, .ld-tag, .ld-emblem-wrap { animation: none; transform: none; opacity: 1; }
+  .ld-word, .ld-ring, .ld-ring2, .ld-rise, .loader-fill { animation: none !important; }
+}
 
 /* ---- chrome ---- */
 .chrome { position: fixed; inset: 0; z-index: 10; pointer-events: none; opacity: 0; transition: opacity .8s var(--ease) .2s; }
@@ -106,8 +155,29 @@ html.deva #ui { font-family: var(--sans), var(--deva); }
 .brand-name { font-family: var(--serif); font-size: 1.375rem; font-weight: 400; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .brand-sub { font-size: .625rem; letter-spacing: .26em; text-transform: uppercase; color: var(--muted); margin-top: .2rem; }
 .tools { display: flex; align-items: center; gap: .5rem; }
-.tod { display: flex; align-items: center; gap: .125rem; padding: .25rem; border: 1px solid var(--line-soft); border-radius: 2px; background: var(--chip); }
-.tod-slider { width: 6.5rem; margin: 0 .5rem 0 .4rem; accent-color: var(--accent); cursor: pointer; height: 1.25rem; }
+/* v1.7 time ruler (phone-camera zoom style): fixed needle, sliding scale, time bubble. Transform/opacity only. */
+.tod-ruler { position: absolute; top: 1rem; left: 50%; transform: translateX(-50%); width: 26rem; max-width: calc(100vw - 2rem);
+  display: grid; justify-items: center; gap: .3rem; z-index: 3; touch-action: none; user-select: none; cursor: grab; outline: none; }
+.tod-ruler.drag { cursor: grabbing; }
+.tr-bubble { display: flex; align-items: baseline; gap: .5rem; padding: .3rem .8rem; border-radius: 999px; background: var(--chip);
+  border: 1px solid var(--line); font-family: var(--sans); white-space: nowrap; pointer-events: none; }
+.tr-time { font-size: .9375rem; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.tr-phase { font-size: .625rem; text-transform: uppercase; letter-spacing: .16em; color: var(--accent); }
+.tr-window { position: relative; width: 100%; height: 2.6rem; overflow: hidden; border-radius: 999px; background: rgba(15, 14, 12, .55);
+  border: 1px solid var(--line-soft);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22%, #000 78%, transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 22%, #000 78%, transparent 100%); }
+.tr-track { position: absolute; left: 50%; top: 0; height: 100%; will-change: transform; }
+.tr-tick { position: absolute; top: .55rem; width: 1px; height: .45rem; margin-left: -.5px; background: rgba(243, 237, 225, .35); }
+.tr-tick.half { height: .65rem; top: .45rem; background: rgba(243, 237, 225, .5); }
+.tr-tick.major { height: .9rem; top: .35rem; width: 2px; margin-left: -1px; background: rgba(243, 237, 225, .8); }
+.tr-lbl { position: absolute; top: 1.4rem; transform: translateX(-50%); font: 500 .625rem var(--sans); color: var(--muted); letter-spacing: .04em; white-space: nowrap; }
+.tr-stop { position: absolute; bottom: .15rem; width: .5rem; height: .5rem; margin-left: -.25rem; padding: 0; border: 0; border-radius: 50%;
+  background: var(--accent); cursor: pointer; opacity: .9; }
+.tr-needle { position: absolute; left: 50%; top: .2rem; bottom: .2rem; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--accent);
+  box-shadow: 0 0 0 1px rgba(14, 13, 11, .5); }
+.tod-ruler:focus-visible .tr-window { border-color: var(--accent); }
+body.present .tod-ruler, body.blanked .tod-ruler { opacity: 0; pointer-events: none; }
 .sep { width: 1px; height: 1.5rem; background: var(--line-soft); margin: 0 .25rem; }
 .langs { display: flex; gap: .125rem; }
 
@@ -250,7 +320,6 @@ body.interior .tags { display: none; }
 
 /* ---- small laptops / 720p ---- */
 @media (max-width: 1180px) {
-  .tod-slider { display: none; }
   .panel { width: 20rem; }
   body.panel-open .dock, body.panel-open .caption { left: calc(50% - 10.5rem); }
 }
@@ -263,25 +332,44 @@ body.interior .tags { display: none; }
 
 /* ---- phones: ToD as its own row, dock scrolls, panel becomes a bottom sheet ---- */
 @media (max-width: 699px) {
+  /* v1.11 mobile pass: phones get a 13.5 px rem base (was the desktop 16 px) - every rem-sized element scales down */
+  :root { font-size: calc(13.5px * var(--ui-scale)); }
+  .chrome > .compass { top: 8.2rem; left: .75rem; width: 2.5rem; height: 2.5rem; }
+  /* compact time ruler: smaller bubble, slimmer scale */
+  .tod-ruler { gap: .2rem; }
+  .tr-bubble { padding: .2rem .65rem; gap: .4rem; }
+  .tr-time { font-size: .875rem; }
+  .tr-window { height: 2.15rem; }
+  .tr-tick { top: .4rem; } .tr-tick.half { top: .32rem; } .tr-tick.major { top: .25rem; height: .75rem; }
+  .tr-lbl { top: 1.15rem; font-size: .5625rem; }
+  .dock { width: auto; }                       /* base width:max-content made it 718px wide on a 390px phone */
+  .dock-in { padding: .2rem; }
+  .dock-btn { min-height: 2.35rem; padding: 0 .75rem; }
+  .fact { padding: .55rem .5rem; } .fact-v { font-size: 1.05rem; }
+  .card { padding: .55rem .65rem; }
+  .sec { margin-bottom: 1.1rem; }
+  .ld-hero { top: 22vh; }
+  .ld-line.l1 { font-size: clamp(2.25rem, 12vw, 3.5rem); }
+  .ld-line.l2 { font-size: clamp(1.8rem, 9.5vw, 2.8rem); }
+  .ld-emblem-wrap { left: .75rem; bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px)); gap: 1rem; } .ld-emblem { width: 4.75rem; height: 4.75rem; }
   .topbar { flex-wrap: nowrap; padding: .6rem .75rem .5rem; gap: .5rem; }
   .present-btn { display: none; }
   .brand-name { font-size: 1.125rem; }
   .brand-sub { font-size: .5625rem; }
   .tools { gap: .375rem; }
-  .tools > .tod { position: absolute; left: .75rem; right: .75rem; top: 3.6rem; justify-content: space-between; }
-  .tod .chip { flex: 1; justify-content: center; padding: 0 .25rem; font-size: .6875rem; }
+  .tod-ruler { top: 3.7rem; width: calc(100vw - 1.5rem); }
   .icon-btn { width: 2.375rem; height: 2.375rem; }
   .dock { left: .75rem; right: .75rem; bottom: .75rem; transform: none; max-width: none; }
   .dock-btn { padding: 0 .8rem; }
   .caption { bottom: 4.5rem; padding: .75rem 1rem; }
   .cap-text { font-size: 1rem; }
-  .panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 72vh; border-width: 1px 0 0; border-radius: 10px 10px 0 0;
+  .panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 64vh; border-width: 1px 0 0; border-radius: 10px 10px 0 0;
     transform: translateY(100%); background: var(--panel-solid); z-index: 5; }
   .panel-grip { display: block; width: 2.5rem; height: 3px; border-radius: 2px; background: rgba(243,237,225,.3); margin: .5rem auto 0; flex: none; }
   .panel-scroll { padding: 1rem 1.25rem 1.5rem; }
   .ctas { padding: .75rem 1.25rem calc(.75rem + env(safe-area-inset-bottom, 0px)); }
   .hero-band { margin: -1rem -1.25rem 1rem; padding: 1rem 1.25rem 1rem; }
-  .panel-title { font-size: 1.75rem; }
+  .panel-title { font-size: 1.5rem; }
   .toast, .embed-release { top: 6.75rem; }
   .gallery { grid-template-columns: 1fr; }
   .gallery .panel { height: auto; border-width: 1px 0 0; max-height: none; transform: none; border-radius: 0; }
@@ -294,6 +382,26 @@ body.interior .tags { display: none; }
 @media (max-height: 760px) and (min-width: 700px) {
   .panel { top: 4.25rem; bottom: .75rem; }
   .dock { bottom: .75rem; }
+}
+/* v1.11 landscape phones (short + wide): compact everything so the 3D stays visible */
+@media (max-height: 500px) and (orientation: landscape) {
+  :root { font-size: calc(12px * var(--ui-scale)); }
+  .topbar { padding: .45rem .9rem; }
+  .tod-ruler { top: .45rem; width: 20rem; gap: .15rem; }
+  .tr-bubble { padding: .15rem .6rem; }
+  .tr-window { height: 2rem; }
+  .tr-tick { top: .35rem; } .tr-tick.major { top: .2rem; height: .7rem; }
+  .tr-lbl { top: 1.05rem; font-size: .5625rem; }
+  .chrome > .compass { top: 4rem; left: .9rem; width: 2.5rem; height: 2.5rem; }
+  .dock { bottom: .5rem; }
+  .dock-btn { min-height: 2.2rem; padding: 0 .7rem; }
+  .caption { bottom: 3.5rem; }
+  .panel { top: 3.6rem; bottom: .5rem; width: 19rem; }
+  .ld-hero { top: 18vh; }
+  .ld-line.l1 { font-size: clamp(2rem, 7vw, 3.4rem); }
+  .ld-line.l2 { font-size: clamp(1.6rem, 5.6vw, 2.7rem); }
+  .ld-tag { margin-top: .7rem; }
+  .ld-emblem-wrap { bottom: 1rem; } .ld-emblem { width: 4.5rem; height: 4.5rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

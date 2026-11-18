@@ -27,7 +27,7 @@ export async function build(ctx) {
   const MOD = 'vegetation';
   const V3 = THREE.Vector3;
 
-  const [mBark, mFrond, mFoliage, mShadow] = await Promise.all(['vegetation.bark', 'vegetation.frond', 'vegetation.foliage', 'contactShadow'].map((n) => M.use(n)));
+  const [mBark, mFrond, mFoliage, mShadow, mLowPoly] = await Promise.all(['vegetation.bark', 'vegetation.frond', 'vegetation.foliage', 'contactShadow', 'vegetation.lowpoly'].map((n) => M.use(n)));
 
   /* =============================== obstacles =============================== */
   const pad = (r, m) => ({ x: [r.x[0] - m, r.x[1] + m], z: [r.z[0] - m, r.z[1] + m] });
@@ -323,15 +323,36 @@ export async function build(ctx) {
     return util.mergeParts([{ geometry: g0 }, { geometry: cg }]);
   })();
   // broadleaf tree canopies: three belt variants (round, tall oval, spreading) + a fuller plaza tree; trunk
-  const beltLayers = (n) => [{ n, size: [0.95, 1.5], reg: 'A', shell: [0.55, 1.05], up: 0.3 }];
+  // v1.6 (owner review): broadleaf trees are clean LOW-POLY models (faceted icosahedron canopy blobs + tapered
+  // 6-sided trunk, one mesh with vertex colours, flat shaded) - the leaf-card clusters read as smudges from above.
+  const lowPolyTree = (blobs, { seed, trunkH = 3.0, trunkR = 0.2, detail = 0 }) => {
+    const parts = [];
+    const colorize = (g, fn) => { const p = g.attributes.position, a = new Float32Array(p.count * 3); for (let i = 0; i < p.count; i++) { const c = fn(p.getY(i)); a.set([c.r, c.g, c.b], i * 3); } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; };
+    const trunk = new THREE.CylinderGeometry(trunkR * 0.55, trunkR, trunkH + 0.6, 6, 1, false); trunk.translate(0, (trunkH + 0.6) / 2, 0);
+    const bark = new THREE.Color('#6B4E36'); parts.push({ geometry: colorize(trunk.toNonIndexed(), () => bark) });
+    const yMin = Math.min(...blobs.map((b) => b[1] - b[3])), yMax = Math.max(...blobs.map((b) => b[1] + b[3]));
+    const dark = new THREE.Color('#2F5E23'), light = new THREE.Color('#6FA040'), c = new THREE.Color();
+    for (const [x, y, z, rad] of blobs) {
+      const g = new THREE.IcosahedronGeometry(rad, detail);   // already non-indexed (polyhedron); 20 / 80 facets
+      const p = g.attributes.position;
+      for (let i = 0; i < p.count; i += 3) {            // jitter per face-vertex group consistently (keeps facets crisp)
+        for (let k = 0; k < 3; k++) { const j = i + k, s = 1 + 0.12 * Math.sin(p.getX(j) * 3.1 + p.getY(j) * 4.7 + p.getZ(j) * 2.3 + seed); p.setXYZ(j, p.getX(j) * s, p.getY(j) * s * 0.92, p.getZ(j) * s); }
+      }
+      g.translate(x, y, z);
+      parts.push({ geometry: colorize(g, (yy) => c.copy(dark).lerp(light, Math.min(1, Math.max(0, (yy - yMin) / (yMax - yMin))) ** 0.8)) });
+    }
+    const merged = util.mergeParts(parts);
+    merged.deleteAttribute('uv');
+    merged.computeVertexNormals();
+    return merged;
+  };
   const treeProtos = [
-    cardCluster([[0, 3.9, 0, 2.3], [1.6, 3.4, 0.7, 1.8], [-1.4, 3.5, -0.9, 1.9]], beltLayers(76), { seed: 21, core: { detail: 0, scale: 0.8 } }),
-    cardCluster([[0, 4.3, 0, 1.8], [0.3, 5.5, 0.2, 1.45], [-0.5, 3.4, 0.3, 1.55], [0.6, 3.6, -0.5, 1.4]], beltLayers(72), { seed: 22, core: { detail: 0, scale: 0.8 } }),
-    cardCluster([[0, 3.9, 0, 2.0], [2.0, 3.6, 0.4, 1.6], [-1.9, 3.7, -0.3, 1.7], [0.3, 3.5, 1.9, 1.5], [-0.2, 3.8, -1.9, 1.5]], beltLayers(84), { seed: 23, squashY: 0.72, core: { detail: 0, scale: 0.8 } }),
+    lowPolyTree([[0, 4.2, 0, 2.2], [1.3, 3.7, 0.6, 1.6], [-1.2, 3.8, -0.7, 1.7]], { seed: 21 }),                       // round
+    lowPolyTree([[0, 4.4, 0, 1.7], [0.2, 5.8, 0.1, 1.3], [-0.3, 3.6, 0.3, 1.4]], { seed: 22, trunkH: 3.2, trunkR: 0.18 }),  // tall oval
+    lowPolyTree([[0, 3.8, 0, 1.9], [1.8, 3.5, 0.3, 1.5], [-1.7, 3.6, -0.2, 1.5], [0.2, 3.4, 1.6, 1.3]], { seed: 23, trunkH: 2.7 }),   // spreading
   ];
-  const nearGeo = cardCluster([[0, 4.6, 0, 2.0], [1.5, 4.0, 0.7, 1.6], [-1.3, 4.1, -0.8, 1.7], [0.2, 5.6, -0.4, 1.5], [-0.3, 3.9, 1.3, 1.4]],
-    [{ n: 150, size: [0.8, 1.25], reg: 'A', shell: [0.5, 1.05], up: 0.3 }], { seed: 33, core: { detail: low ? 0 : 1, scale: 0.78 } });
-  const trunkG = (() => { const g = new THREE.CylinderGeometry(0.11, 0.2, 3.4, 6, 1, true); g.translate(0, 1.7, 0); return g; })();
+  const nearGeo = lowPolyTree([[0, 4.7, 0, 2.1], [1.4, 4.1, 0.7, 1.6], [-1.3, 4.2, -0.8, 1.7], [0.2, 5.7, -0.3, 1.4]], { seed: 33, trunkH: 3.4, trunkR: 0.22, detail: 1 });   // plaza trees seen up close: smoother
+  const trunkG = (() => { const g = new THREE.CylinderGeometry(0.11, 0.2, 3.4, 6, 1, true); g.translate(0, 1.7, 0); return g; })();   // bbox helper only (trunk is in the tree mesh)
 
   const shrubs = { s: [], f: [] };   // {m, c, id, y}
   const rs = rng('shrubs');
@@ -453,9 +474,24 @@ export async function build(ctx) {
     const pts = util.scatter(rng('belt-' + bi), b, { count, minDist: 3.6, reject: beltReject, maxTries: 12 });
     for (const [x, z] of pts) { const v = rt.int(0, treeProtos.length - 1); addTree(belts[v], treeProtos[v], x, z, 0, 1.25 * rt.range(0.75, 1.25), tid()); }
   }
-  if (near.m.length) group.add(util.instanced(nearGeo, mFoliage, near.m, { ids: near.ids, colors: near.c, name: 'Trees/Plaza', castShadow: true }));
-  belts.forEach((b, i) => { if (b.m.length) group.add(util.instanced(treeProtos[i], mFoliage, b.m, { ids: b.ids, colors: b.c, name: `Trees/Belts_${'ABC'[i]}`, castShadow: false })); });
-  group.add(util.instanced(trunkG, mBark, trunks.m, { colors: trunks.c, name: 'Trees/Trunks', castShadow: false }));
+  // v1.6 far ring (140-460 m): low-poly tree groves replace the old scrub mounds -> a wooded suburb to the horizon
+  {
+    const rf = rng('far-groves'), roadsZ = [...SPEC.site.roads.map((r) => r.z)];
+    const farReject = (x, z) => roadsZ.some(([a, b]) => z > a - 4 && z < b + 4) || ctxBlocks.some((r) => util.inRect(x, z, r));
+    const groves = low ? 70 : 150;
+    for (let g = 0; g < groves; g++) {
+      const a = rf.range(0, Math.PI * 2), d = rf.range(150, 460), cx = Math.cos(a) * d, cz = Math.sin(a) * d;
+      const n = rf.int(3, 8);
+      for (let k = 0; k < n; k++) {
+        const x = cx + rf.range(-9, 9), z = cz + rf.range(-9, 9);
+        if (farReject(x, z) || Math.abs(x) < 140 && Math.abs(z) < 140) continue;
+        const v = rf.int(0, treeProtos.length - 1);
+        addTree(belts[v], treeProtos[v], x, z, 0, 1.5 * rf.range(0.75, 1.3), tid());
+      }
+    }
+  }
+  if (near.m.length) group.add(util.instanced(nearGeo, mLowPoly, near.m, { ids: near.ids, colors: near.c, name: 'Trees/Plaza', castShadow: true }));
+  belts.forEach((b, i) => { if (b.m.length) group.add(util.instanced(treeProtos[i], mLowPoly, b.m, { ids: b.ids, colors: b.c, name: `Trees/Belts_${'ABC'[i]}`, castShadow: false })); });
 
   /* ------------------------------ palm contact shadows ------------------------------ */
   const blob = new THREE.PlaneGeometry(1, 1); blob.rotateX(-Math.PI / 2);

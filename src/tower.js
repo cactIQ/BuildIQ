@@ -293,7 +293,18 @@ function buildWindow(T, F, o) {
     fbox(A.trim, F, u0 - 0.16, u1 + 0.16, v1 + sw, v1 + sw + 0.1, 0, 0.07, { back: false });
     fbox(A.trim, F, u0 - 0.2, u1 + 0.2, v1 + sw + 0.1, v1 + sw + 0.14, 0, 0.1, { back: false });
   }
-  if (o.relief) fbox(A.orn, F, u0 - 0.05, u1 + 0.05, v0 - 0.5, v0 - 0.12, 0, 0.03, { back: false, uv: ORN.R });
+  if (o.relief) {
+    // v1.1: real relief, not just a normal map - raised moulded frame (8 cm proud) around a 5 cm carved panel, so
+    // the cartouche band keeps its shadow lines at 40 m+ (refs A/D signature)
+    const pu0 = u0 - 0.05, pu1 = u1 + 0.05, pv0 = v0 - 0.5, pv1 = v0 - 0.12, fw = 0.05;
+    fbox(A.orn, F, pu0 + fw, pu1 - fw, pv0 + fw, pv1 - fw, 0, 0.05, { back: false, uv: ORN.R });
+    if (!T.low) {
+      fbox(A.trim, F, pu0, pu1, pv0, pv0 + fw, 0, 0.08, { back: false });
+      fbox(A.trim, F, pu0, pu1, pv1 - fw, pv1, 0, 0.08, { back: false });
+      fbox(A.trim, F, pu0, pu0 + fw, pv0 + fw, pv1 - fw, 0, 0.08, { back: false });
+      fbox(A.trim, F, pu1 - fw, pu1, pv0 + fw, pv1 - fw, 0, 0.08, { back: false });
+    }
+  }
 }
 
 function buildRecess(T, F, o) {
@@ -427,11 +438,25 @@ function buildTower(ctx, t, mats, index) {
     const F = side === 'W' ? WEST(-hw) : EAST(hw);
     const zf = side === 'W' ? zFront0 : zFront1;
     const u0 = side === 'W' ? -hd : -zf, u1 = side === 'W' ? zf : hd, Ls = u1 - u0;
-    const stacks = t.sides?.[side]?.windowStacks ?? 2, fr = stacks === 1 ? [0.5] : [0.28, 0.72];
-    const ops = [];
-    for (let f = 1; f <= t.floors; f++) {
-      const yb = floorY(f);
-      for (const q of fr.slice(0, stacks)) ops.push(win(u0 + Ls * q, yb + K.sill, 1.2, 1.5, { id: `${t.id}/F${pad(f)}/${side}` }));
+    const sd = t.sides?.[side] || {}, ops = [];
+    if (sd.pattern === 'dense') {
+      // v1.1 (refs B/C): flanks carry windows + recessed balconies like the front, mirrored about the centre pilaster
+      const cols = [['w', 0.1], ['b', 0.3], ['w', 0.45], ['w', 0.55], ['b', 0.7], ['w', 0.9]];
+      const bw = Math.min(2.6, Ls * 0.11);
+      for (let f = 1; f <= t.floors; f++) {
+        const yb = floorY(f), id = `${t.id}/F${pad(f)}/${side}`;
+        for (const [kind, q] of cols) {
+          const uc = u0 + Ls * q;
+          if (kind === 'w') ops.push(win(uc, yb + K.sill, 1.3, 1.6, { id, relief: !isBand(f) }));
+          else ops.push(recess(uc - bw / 2, uc + bw / 2, yb + K.recessV, yb + fh - K.recessV, K.northBalDepth, { id, slabBand: !isC(f - 1) }));
+        }
+      }
+    } else {
+      const stacks = sd.windowStacks ?? 2, fr = stacks === 1 ? [0.5] : [0.28, 0.72];
+      for (let f = 1; f <= t.floors; f++) {
+        const yb = floorY(f);
+        for (const q of fr.slice(0, stacks)) ops.push(win(u0 + Ls * q, yb + K.sill, 1.2, 1.5, { id: `${t.id}/F${pad(f)}/${side}` }));
+      }
     }
     facadeWall(T, F, u0, u1, soffitY, topY, ops);
     T[side] = { F, u0, u1, mid: u0 + Ls / 2 };
@@ -670,33 +695,32 @@ function buildTower(ctx, t, mats, index) {
   // windows: one InstancedMesh; aWin = (variant + sill/2, curtain, lit, tint)
   const gl = T.glass, plane = new THREE.PlaneGeometry(1, 1), aWin = new Float32Array(gl.length * 4), mats4 = [], ids = [];
   // lit state is per apartment unit (front bays share an id; side/north ids are split by position), ~40 % lit
-  const litP = Math.min(0.4, ctx.SPEC.global.timeOfDay.litWindowFraction), unitLit = new Map();
+  const litP = Math.min(0.6, ctx.SPEC.global.timeOfDay.litWindowFraction), unitLit = new Map();   // v1.2: livelier night
   gl.forEach((g, i) => {
     const pos = g.F.P(g.uc, g.vc, -K.glassD);
     mats4.push(new THREE.Matrix4().makeBasis(g.F.U.clone().multiplyScalar(g.W), Y.clone().multiplyScalar(g.H), g.F.N).setPosition(pos));
     ids.push(g.id || `${t.id}/W${i}`);
-    let variant = rng.int(0, 7), cur, lit, tint = rng();
-    const cr = rng();
-    cur = cr < 0.3 ? 0 : cr < 0.72 ? rng.range(0.25, 0.6) : rng.range(0.85, 1);
+    // v1.4 (owner review): ONE window type everywhere - same room, full-width sheer curtain, same tint (tiny +-4 %
+    // brightness jitter only). Mixed open / half-drawn / sheer states read as an uneven facade, worst at night.
+    let variant = 1, lit, tint = 0.5 + rng.range(-0.04, 0.04);
+    let cur = 1;
     const unit = /\/[NWE]$/.test(g.id || '') ? `${g.id}:${Math.round(g.uc / 3)}` : (g.id || `W${i}`);
     if (!unitLit.has(unit)) unitLit.set(unit, rng.chance(litP) ? 1 : 0);
-    lit = unitLit.get(unit);
-    if (lit && rng.chance(0.25)) cur = rng.range(0.88, 1);          // curtain-dimmed lit units
-    if (g.kind === 'stair') { variant = 5; cur = 0; lit = rng.chance(0.22) ? 1 : 0; }   // no continuous stair stripe
-    if (g.kind === 'lobby') { variant = 4; cur = 0; lit = 1; tint = 1; }
+    lit = 1;   // v1.5 (owner): every window lit at night (unitLit kept so the RNG sequence/variants stay stable)
+    if (g.kind === 'lobby') { variant = 4; lit = 1; cur = 0; }               // lobby glazing stays clear
     aWin.set([variant + Math.min(1.5, Math.max(0, g.sill)) / 2, cur, lit, tint], i * 4);
   });
   plane.setAttribute('aWin', new THREE.InstancedBufferAttribute(aWin, 4));
   const im = new THREE.InstancedMesh(plane, mats['tower.glass'], Math.max(1, gl.length));
   mats4.forEach((m, i) => im.setMatrixAt(i, m));
   im.count = gl.length; im.instanceMatrix.needsUpdate = true;
-  im.name = `${t.id}/Facade/Windows`; im.castShadow = false; im.receiveShadow = true; im.userData.ids = ids;
+  im.name = `${t.id}/Facade/Windows`; im.castShadow = true; im.receiveShadow = true; im.userData.ids = ids;   // v1.4: glass closes the openings in the shadow map (no light leaking through window holes onto the road)
   im.computeBoundingBox(); im.computeBoundingSphere();
   tg.add(im);
   return tg;
 }
 const mix = (a, b, t) => a + (b - a) * t;
-const WASH_I = 0.11;   // night facade wash strength (emissive multiplier on albedo)
+const WASH_I = 0.16;   // night floodlight strength (emissive multiplier on albedo; v1.3 even-wash scheme)
 
 /* ----------------------------------------- module entry ----------------------------------------- */
 export async function build(ctx) {

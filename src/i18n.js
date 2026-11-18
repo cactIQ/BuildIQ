@@ -33,7 +33,7 @@ export const STRINGS = [
   // misc
   'Snapshot saved', 'Snapshot failed', 'Interactive 3D view', 'Blank screen',
   'This device cannot show the live 3D view. Showing still images instead.', 'Image coming soon',
-  'Previous', 'Next', 'Gallery', 'Something went wrong loading the interior.',
+  'Previous', 'Next', 'Gallery', 'Something went wrong loading the interior.', 'N',
 ];
 
 // NEEDS NATIVE REVIEW (Hindi)
@@ -66,7 +66,7 @@ const hi = {
   'Blank screen': 'स्क्रीन खाली करें',
   'This device cannot show the live 3D view. Showing still images instead.': 'यह डिवाइस लाइव 3D दृश्य नहीं दिखा सकता। इसके बजाय चित्र दिखाए जा रहे हैं।',
   'Image coming soon': 'चित्र जल्द आएगा', 'Previous': 'पिछला', 'Next': 'अगला', 'Gallery': 'गैलरी',
-  'Something went wrong loading the interior.': 'अंदरूनी दृश्य लोड करने में समस्या हुई।',
+  'Something went wrong loading the interior.': 'अंदरूनी दृश्य लोड करने में समस्या हुई।', 'N': 'उ',
 };
 
 // NEEDS NATIVE REVIEW (Marathi)
@@ -99,7 +99,7 @@ const mr = {
   'Blank screen': 'स्क्रीन रिकामी करा',
   'This device cannot show the live 3D view. Showing still images instead.': 'हे उपकरण थेट 3D दृश्य दाखवू शकत नाही. त्याऐवजी चित्रे दाखवली आहेत.',
   'Image coming soon': 'चित्र लवकरच', 'Previous': 'मागील', 'Next': 'पुढील', 'Gallery': 'गॅलरी',
-  'Something went wrong loading the interior.': 'आतील दृश्य लोड करताना अडचण आली.',
+  'Something went wrong loading the interior.': 'आतील दृश्य लोड करताना अडचण आली.', 'N': 'उ',
 };
 
 export const DICTS = { en: {}, hi, mr };

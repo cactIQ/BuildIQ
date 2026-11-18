@@ -58,6 +58,7 @@ test('presetTanV keeps the whole reference frame on narrower canvases', () => {
 test('todBlend interpolates and picks nearest keyframe', () => {
   const kf = SPEC.global.timeOfDay.keyframes;
   assert.equal(todBlend(kf, 0).nearest, 'day'); assert.equal(todBlend(kf, 1).nearest, 'night');
-  const mid = todBlend(kf, 0.175); assert.ok(mid.sunI < 3.2 && mid.sunI > 2.4);
+  const mid = todBlend(kf, 0.175); const kd = kf.find((x) => x.id === 'day'), kg = kf.find((x) => x.id === 'golden');
+  assert.ok(Math.abs(mid.sunI - (kd.sunI + kg.sunI) / 2) < 1e-9);
   assert.equal(todBlend(kf, -3).nearest, 'day'); assert.equal(todBlend(kf, 9).nearest, 'night');
 });
