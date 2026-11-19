@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createSkyMaterial, applySky } from './sky.js';
-import { installGrade } from './grade.js';
+import { installGrade, setLook, getLook, resolveLook, LOOK_U } from './grade.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import SPEC from './spec/index.js';
 import { parseParams, resolutionScale, dynResStep, shiftLens, presetTanV, todBlend, easeInOutCubic } from './params.js';
@@ -112,7 +112,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
 
   /* ----------------------------- sky, clouds, night dome ----------------------------- */
   // v1.1: art-directed clean-air sky (src/sky.js) replaces Preetham + the night dome; one program for all keyframes
-  const skyMat = createSkyMaterial();
+  const skyMat = createSkyMaterial({ look: LOOK_U });   // v1.13: the visible sky follows the look (env bake sky stays neutral)
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1900, 48, 24), skyMat); sky.name = 'Sky'; sky.renderOrder = -2; sky.frustumCulled = false;
   scene.add(sky);
   const nightDome = sky;   // legacy name kept for applyDebug
@@ -252,7 +252,12 @@ export async function createApp({ canvas, container = document.body, onProgress 
     } else { camera.aspect = viewAspect; camera.clearViewOffset(); }
     camera.updateProjectionMatrix();
   }
-  const presetLens = (p) => ({ tanV: presetTanV(p, viewAspect), shift: p.shift ? p.shift.horizonY - 0.5 : 0 });
+  // v1.13: on portrait screens a preset may override its framing (`portrait: { fit, horizonY, hfov }`), so wide
+  // reference frames (e.g. the ground-level elevation) crop their sides instead of shrinking the towers under a huge sky
+  const presetFor = (p) => (viewAspect < 1 && p.portrait
+    ? { ...p, ...p.portrait, shift: p.shift && p.portrait.horizonY != null ? { horizonY: p.portrait.horizonY } : p.shift }
+    : p);
+  const presetLens = (p) => { const q = presetFor(p); return { tanV: presetTanV(q, viewAspect), shift: q.shift ? q.shift.horizonY - 0.5 : 0 }; };
 
   let currentView = params.view, flight = null, viewSun = null;
   function setView(id, { instant = false, duration = 1.9 } = {}) {
@@ -545,6 +550,9 @@ export async function createApp({ canvas, container = document.body, onProgress 
     },
     dispose() { running = false; tex.dispose(); renderer.dispose(); },
   };
+  // v1.13 looks: SPEC.looks default, or ?look=<id>. Uniform writes only (no recompile); the UI's tune panel edits it live.
+  setLook(resolveLook(SPEC.looks, params.look));
+  app.setLook = setLook; app.getLook = getLook;
   window.app = app;
   report();
   window.__ready = true;

@@ -245,6 +245,30 @@ size, because headless Chrome will not shrink below 504 px.
 - Before and after shots: `shots/v1.11-mobile/`. A real-device check (iPhone Safari and an Android phone) is still
   recommended.
 
+## v1.12 update (2026-11-19): frosted-glass UI
+The UI now matches a smoked frosted-glass reference the owner supplied. One agent drafted the prompt and a second
+reviewed it against the photo and the code before the build.
+- **Real blur without CSS filters.** `src/frost.js` copies the WebGL canvas right after each render, in the same
+  task, so `preserveDrawingBuffer` stays off.
+  - The copy is halved down to 1/12 of the CSS size and blurred with a two-level down/up pyramid (about σ 18 px).
+  - Each glass surface gets its own crop, drawn into a tiny child `<canvas class="frost">` that CSS stretches.
+  - No pixel readback.
+- **Cost:** about 0.2–0.7 ms per update in headless Chrome. Updates run at 18 Hz while the camera moves (12 Hz on the
+  low tier) and 2 Hz when idle, and pause in presentation mode.
+- **Watchdog:** switches the frost off if the median update time goes over 1 ms. `window.__frost` shows
+  `{on, ms, n, targets}`.
+- **`?frost=0`** forces it off, `?frost=1` forces it on. It is on by default on every tier, phones included, and off
+  for `prefers-reduced-transparency`. With it off, the CSS tint (`--g-base` under `--g-smoke`) still reads as glass.
+- **Look** (tokens in `:root`, `--g-*` and `--r-*`):
+  - a smoke tint of .52 (.62 on small pills), a top sheen, and a 1 px light rim with a brighter top edge;
+  - corners of 24 px outside and 14 px inside, with pills for the dock, buttons, ruler, tags and toasts;
+  - facts and amenity rows as lighter nested glass cards;
+  - the gold accent only on active states, numbers, the needle and the CTA, which gets a sheen and glow.
+- **Checked:** 0 console errors at day, golden and with the frost off, and at 390×844 (sheet open and closed) and
+  844×390. 37 programs and 87 draw calls, the same as before. No horizontal overflow on phones.
+- **To check on real devices (v1.12):** the frost on iPhone Safari (if the copy comes back blank there, the panels just look
+  darker), and its frame time on the pitch laptop.
+
 ## Decisions the owner should confirm
 - **Rear tower (Tower B) size and floor count:** the references conflict. The model uses a 46×20 m bar with 14 floors.
 - **Clubhouse roof:** stepped attic per ref E (owner-confirmed).
@@ -269,3 +293,35 @@ size, because headless Chrome will not shrink below 504 px.
 - [ ] Second qualified reviewer assigned: **name: ____________**
 - [ ] Security scan of the code, and a review of the embed `allowedOrigins` before website deployment
 - [ ] Tested on the actual pitch laptop (offline, `start.bat` without Python) and on a mid-range phone
+
+## v1.13 update (2026-11-20): phone elevation, looks, liquid-glass buttons
+- **Elevation on phones (bug fix).** The view kept the whole wide reference frame, so on a tall screen the towers
+  shrank to the bottom under a huge sky.
+  - Presets can now carry `portrait: { fit, horizonY }`. On screens narrower than they are tall, the camera keeps
+    only `fit` of the reference width (it crops the sides) and may move the horizon.
+  - Elevation uses `fit: 0.45, horizonY: 0.9`. Tower A now fills the phone screen, and its base sits above the dock.
+  - Desktop framing is unchanged.
+- **Looks ("LUT" presets).** Live brightness, contrast, vibrance and warmth over the 3D view, with presets and
+  templates. Details are in `docs/SCALABLE.md`.
+  - Open the panel with `?tune=1` or the L key.
+  - One shared uniform drives every material and the sky, so a look change never recompiles a shader. The program
+    count stays at 37.
+- **Liquid-glass buttons** (owner sample). The sample used CSS blur, so they are rebuilt without it:
+  - a double inset rim lit from opposite corners;
+  - corner glints;
+  - an inner ring;
+  - a lift on hover and a squeeze on press.
+
+  They apply to Tour, Look, Info, close, the active dock tab, Enquire, the amenity arrows and the look-panel buttons.
+  Tokens: `--lq-*`.
+- **Checked:** 0 console errors; 37 programs and 87 draw calls in every run; no horizontal overflow at 390 and 360 px.
+- **Not yet checked:** `npm test` (Node is not installed). New tests for `fit`, `look` and `tune` are in
+  `tests/params.test.mjs`.
+
+## v1.14 update (2026-11-20): liquid toggle on the view dock
+- The active view tab is now one glass pill (`.dock-pill` in `src/ui.js`, `placePill`) that slides to the chosen tab
+  and stretches sideways mid-move, held on the side it leaves (the owner's switcher sample, rebuilt without filters).
+- Motion: `translate` and `width` 0.4 s `cubic-bezier(1, 0, .4, 1)`, plus a 0.44 s `scale` keyframe peaking at 1.18.
+  It is placed without animation on load, resize and font load. Reduced motion: it jumps, no stretch.
+- Checked: the pill matches the active tab at 1600 px and 390 px (scrolled dock), 0 console errors, 37 programs.
+  Shots: `shots/v1.14/`. The language chips reload the page, so they do not slide.

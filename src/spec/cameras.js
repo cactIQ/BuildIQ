@@ -7,7 +7,8 @@ export const cameras = {
   // the pool/clubhouse corner face the camera; evening sun from WSW rakes the visible faces. ~10 deg pitch.
   hero:      { label: 'Hero', pos: [-93, 42, 107], target: [-14, 18, -6], fov: 34, tod: 0.35, sun: { azim: 172, elev: 20 } },   // low sun from S, 45 deg off the camera: ornate fronts lit, flanks in shade (critic HERO-008)
   // ref A is a long-lens shot: camera well back across the road so gates and tower keep A's relative scale
-  elevation: { label: 'Elevation', ref: 'A', pos: [3, 1.7, 112], target: [3, 1.7, 0], hfov: 52, shift: { horizonY: 0.95 }, aspect: 1160 / 794, tod: 0.0 },
+  elevation: { label: 'Elevation', ref: 'A', pos: [3, 1.7, 112], target: [3, 1.7, 0], hfov: 52, shift: { horizonY: 0.95 }, aspect: 1160 / 794, tod: 0.0,
+    portrait: { fit: 0.45, horizonY: 0.9 } },   // v1.13 phones: crop the sides so the towers fill the tall screen; base clears the dock
   aerial:    { label: 'Aerial', ref: 'B', pos: [-88, 90, 135], target: [-10, 0, 0], fov: 33, aspect: 655 / 531, tod: 0.0 },
   // aerialN (round 8): WNW bearing, ~40% closer, so the far tower clears the near one (critic AERN-001)
   aerialN:   { label: 'Aerial North', ref: 'C', pos: [-130, 112, -70], target: [-10, 12, 0], fov: 35, aspect: 619 / 538, tod: 0.0, sun: { azim: 255, elev: 42 } },   // afternoon sun from the W lights the faces this view sees (ref C)

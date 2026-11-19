@@ -2,6 +2,7 @@
 // procedural stars. One program for every time of day (keyframes only change uniforms -> no recompile after ready).
 // Colours are authored as display sRGB (the shader skips tone mapping), so a keyframe hex is what the viewer sees.
 import * as THREE from 'three';
+import { LOOK_GLSL } from './grade.js';
 
 const VERT = /* glsl */`
 varying vec3 vWorld;
@@ -15,6 +16,7 @@ const FRAG = /* glsl */`
 uniform vec3 uZenith, uMid, uHorizon, uHaze, uGround, uSunCol, uSunDir, uOrigin, uMoonDir;
 uniform float uHazeAmt, uGlow, uDisc, uStars, uMoon;
 varying vec3 vWorld;
+${LOOK_GLSL}
 float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 void main() {
   vec3 d = normalize(vWorld - uOrigin);
@@ -44,15 +46,18 @@ void main() {
     c += vec3(0.75, 0.82, 1.0) * uMoon * (0.10 * pow(cm, 900.0) + 0.05 * pow(cm, 60.0));
     c = mix(c, vec3(1.0, 0.97, 0.9), uMoon * smoothstep(0.99982, 0.99988, cm));
   }
+  c = applyLook(c * uLook.x);          // v1.13 look (src/grade.js); neutral for the env-map bake
   gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }`;
 
-export function createSkyMaterial() {
+/** `look`: the shared LOOK_U array for the visible sky; omit it (neutral) for the env-map bake sky. */
+export function createSkyMaterial({ look = null } = {}) {
   const C = () => new THREE.Color();
   return new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
     uniforms: {
+      uLook: { value: look || new Float32Array([1, 1, 0, 0]) },
       uZenith: { value: C() }, uMid: { value: C() }, uHorizon: { value: C() }, uHaze: { value: C() }, uGround: { value: C() },
       uSunCol: { value: C() }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uOrigin: { value: new THREE.Vector3() },
       uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoon: { value: 0 },

@@ -24,6 +24,9 @@ export function parseParams(search, SPEC) {
     embed: bool('embed'),
     ui: ['full', 'min', 'none'].includes(p.get('ui')) ? p.get('ui') : (bool('shot') ? 'none' : 'full'),
     autostart: bool('autostart', !bool('embed')),
+    frost: p.has('frost') ? bool('frost') : null,              // v1.12 glass UI blur: null = auto
+    look: /^[a-z0-9-]{1,24}$/.test(p.get('look') || '') ? p.get('look') : null,   // v1.13 look preset id (SPEC.looks)
+    tune: bool('tune'),                                         // v1.13 show the look (grade) panel button
     q: ['high', 'low'].includes(q) ? q : null,
     only: only.length ? only : null,
     debug: ['ids', 'normals', 'overdraw', 'stats'].includes(debug) ? debug : null,
@@ -65,7 +68,10 @@ export function presetTanV(preset, a) {
   let tanH, tanV;
   if (preset.hfov) { tanH = Math.tan((preset.hfov * Math.PI) / 360); tanV = tanH / refA; }
   else { tanV = Math.tan(((preset.fov || 40) * Math.PI) / 360); tanH = tanV * refA; }
-  return Math.max(tanV, tanH / a);
+  // `fit` (0..1, optional): on canvases narrower than the reference keep at least this fraction of its width
+  // (crop the sides) rather than all of it. Without `fit` the whole reference frame is kept.
+  const keepH = preset.fit > 0 && preset.fit < 1 ? tanH * preset.fit : tanH;
+  return Math.max(tanV, keepH / a);
 }
 
 /** Time-of-day interpolation across keyframes. Returns blended numeric fields + nearest keyframe id. */

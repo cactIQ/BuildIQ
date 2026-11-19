@@ -54,6 +54,18 @@ test('presetTanV keeps the whole reference frame on narrower canvases', () => {
   const wide = presetTanV(p, p.aspect), narrow = presetTanV(p, 0.6);
   assert.ok(narrow > wide);
 });
+test('presetTanV `fit` crops the sides on narrow canvases (v1.13 portrait framing)', () => {
+  const p = SPEC.cameras.elevation;
+  const full = presetTanV(p, 0.5), fitted = presetTanV({ ...p, ...p.portrait }, 0.5);
+  assert.ok(fitted < full);
+  assert.ok(fitted >= presetTanV(p, p.aspect));                 // never tighter than the reference frame itself
+  assert.equal(presetTanV({ ...p, fit: 0.5 }, p.aspect * 2), presetTanV(p, p.aspect * 2));   // wide canvases unaffected
+});
+test('parseParams: look and tune', () => {
+  assert.equal(parseParams('?look=vivid&tune=1', SPEC).look, 'vivid');
+  assert.equal(parseParams('?tune=1', SPEC).tune, true);
+  assert.equal(parseParams('?look=<script>', SPEC).look, null);
+});
 
 test('todBlend interpolates and picks nearest keyframe', () => {
   const kf = SPEC.global.timeOfDay.keyframes;

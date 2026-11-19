@@ -5,6 +5,8 @@
 // House rules: no CSS filters, loader animates transform/opacity only, no cost figures anywhere, placeholder data is labelled.
 import { createI18n, LANG_LABEL } from './i18n.js';
 import { mountEmbed } from './embed.js';
+import { createFrost } from './frost.js';
+import { mountLookPanel } from './look-panel.js';
 
 const VIEW_ORDER = ['hero', 'aerial', 'elevation', 'pool', 'clubhouse', 'aerialN', 'gym', 'orbit'];
 const TOD = [['Day', 0], ['Golden', 0.35], ['Dusk', 0.65], ['Night', 1]];
@@ -40,6 +42,7 @@ const ICON = {
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   left: '<path d="M15 5l-7 7 7 7"/>',
   right: '<path d="M9 5l7 7-7 7"/>',
+  look: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
 };
 const svg = (name) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICON[name]}</svg>`;
 
@@ -211,7 +214,7 @@ export function mountUI({ root, SPEC, params }) {
       ]),
     ]) : null;
     const closeBtn = onClose ? el('button', { class: 'icon-btn panel-close', type: 'button', 'aria-label': t('Close'), title: t('Close'), html: svg('close'), onClick: onClose }) : null;
-    return el('aside', { class: 'panel', 'aria-label': t('Details') }, [
+    return el('aside', { class: 'panel glass', 'aria-label': t('Details') }, [
       el('div', { class: 'panel-grip', 'aria-hidden': 'true' }),
       closeBtn,
       el('div', { class: 'panel-scroll' }, [
@@ -246,7 +249,7 @@ export function mountUI({ root, SPEC, params }) {
     if (poster) { poster.classList.add('fade'); setTimeout(() => poster.remove(), 1000); }
 
     /* --- top bar --- */
-    const tourBtn = el('button', { class: 'btn btn-line tour-btn', type: 'button', 'aria-pressed': 'false', onClick: () => (app.tour.playing() ? app.tour.stop() : startTour()) }, [
+    const tourBtn = el('button', { class: 'btn btn-line tour-btn glass', type: 'button', 'aria-pressed': 'false', onClick: () => (app.tour.playing() ? app.tour.stop() : startTour()) }, [
       el('span', { class: 'ico', html: svg('play') }), el('span', { class: 'lbl', text: t('Tour') }),
     ]);
     const todGroup = buildTimeRuler(app);
@@ -254,7 +257,10 @@ export function mountUI({ root, SPEC, params }) {
     const snapBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Snapshot'), title: t('Snapshot'), html: svg('camera'), onClick: snapshot });
     const fsBtn = document.fullscreenEnabled ? el('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Fullscreen'), title: t('Fullscreen'), html: svg('expand'), onClick: toggleFullscreen }) : null;
     const sizeBtn = el('button', { class: 'icon-btn size-btn', type: 'button', 'aria-label': t('UI size'), title: t('UI size'), html: svg('size'), onClick: () => { scaleIdx = (scaleIdx + 1) % UI_SCALES.length; store.set('ui-scale', UI_SCALES[scaleIdx]); applyScale(); measure(); } });
-    const infoBtn = minimal ? null : el('button', { class: 'icon-btn info-btn', type: 'button', 'aria-label': t('Details'), title: t('Details'), 'aria-expanded': 'false', html: svg('info'), onClick: () => setPanel(!panelOpen) });
+    const infoBtn = minimal ? null : el('button', { class: 'icon-btn info-btn glass', type: 'button', 'aria-label': t('Details'), title: t('Details'), 'aria-expanded': 'false', html: svg('info'), onClick: () => setPanel(!panelOpen) });
+    // v1.13 look (grade) panel: owner tool. Button only with ?tune=1; the L key always toggles it.
+    const lookPanel = mountLookPanel({ app, SPEC, el, store, onToggle: (on) => { lookBtn?.setAttribute('aria-expanded', String(on)); frost?.invalidate(400); measure(); } });
+    const lookBtn = params.tune ? el('button', { class: 'icon-btn look-btn glass', type: 'button', 'aria-label': 'Look', title: 'Look (L)', 'aria-expanded': 'false', html: svg('look'), onClick: () => lookPanel.toggle() }) : null;
     const langs = t.languages.length > 1 ? el('div', { class: 'langs', role: 'group', 'aria-label': t('Language') }, t.languages.map((l) => el('a', {
       class: 'chip' + (l === t.lang ? ' on' : ''), href: '?' + new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(location.search)), lang: l }), lang: l, text: LANG_LABEL[l] || l,
     }))) : null;
@@ -264,23 +270,48 @@ export function mountUI({ root, SPEC, params }) {
       ])]),
       // v1.7 (owner): presentation / snapshot / fullscreen / UI-size buttons removed from the bar (keyboard
       // shortcuts still work: P presentation, B blank); the time ruler floats on its own at the top centre
-      el('div', { class: 'tools' }, [tourBtn, langs, infoBtn]),
+      el('div', { class: 'tools' }, [tourBtn, langs, lookBtn, infoBtn]),
     ]);
     void presentBtn; void snapBtn; void fsBtn; void sizeBtn;
 
     /* --- view dock --- */
     const dockBtns = {};
-    const dock = el('nav', { class: 'dock', 'aria-label': t('Views') }, [el('div', { class: 'dock-in' }, views.map((id) => {
+    // v1.14 liquid toggle: one glass pill slides under the active tab and stretches on the way (transform only)
+    const dockPill = el('span', { class: 'dock-pill', 'aria-hidden': 'true' });
+    const dock = el('nav', { class: 'dock glass', 'aria-label': t('Views') }, [el('div', { class: 'dock-in' }, [dockPill, ...views.map((id) => {
       const b = el('button', { class: 'dock-btn', type: 'button', 'data-view': id, 'aria-pressed': 'false', text: t(cams[id].label || id),
         onClick: () => { app.tour.stop(); if (app.getView() === id && id !== 'orbit') return; app.setView(id); } });
       dockBtns[id] = b; return b;
-    }))]);
+    })])]);
+    let pillId = null;
+    function placePill(id, animate) {
+      const b = dockBtns[id];
+      if (!b) { dockPill.style.opacity = '0'; pillId = null; return; }
+      if (!b.offsetWidth) return;                      // not laid out yet: the resize / fonts hook places it later
+      const prev = pillId && pillId !== id ? dockBtns[pillId] : null;
+      const moving = !!(animate && prev && !reduceMotion);
+      dockPill.classList.toggle('no-anim', !moving);
+      if (moving) {
+        dockPill.style.transformOrigin = b.offsetLeft > prev.offsetLeft ? 'left center' : 'right center';
+        dockPill.classList.remove('stretch'); void dockPill.offsetWidth; dockPill.classList.add('stretch');
+      }
+      dockPill.style.width = b.offsetWidth + 'px';
+      dockPill.style.height = b.offsetHeight + 'px';
+      dockPill.style.top = b.offsetTop + 'px';
+      dockPill.style.translate = b.offsetLeft + 'px 0';
+      dockPill.style.opacity = '1';
+      pillId = id;
+    }
+    addEventListener('resize', () => placePill(pillId, false));
+    document.fonts?.ready.then(() => placePill(pillId, false));
 
     /* --- panel --- */
     const panel = minimal ? null : buildPanel(app, { onClose: () => setPanel(false) });
+    let frost = null;                                // v1.12 glass blur (src/frost.js), created after the DOM is in
     function setPanel(on) {
       if (!panel) return;
       panelOpen = on;
+      frost?.invalidate(650);                        // panel slides (and the dock shifts): track rects every frame
       panel.classList.toggle('open', on);
       document.body.classList.toggle('panel-open', on);
       infoBtn?.setAttribute('aria-expanded', String(on));
@@ -292,12 +323,12 @@ export function mountUI({ root, SPEC, params }) {
 
     /* --- caption / tags / overlays --- */
     const capText = el('p', { class: 'cap-text' });
-    const caption = el('div', { class: 'caption', 'aria-live': 'polite' }, [el('span', { class: 'ph-badge', text: t('Placeholder caption') }), capText]);
+    const caption = el('div', { class: 'caption glass', 'aria-live': 'polite' }, [el('span', { class: 'ph-badge', text: t('Placeholder caption') }), capText]);
     const tagLayer = el('div', { class: 'tags', 'aria-hidden': 'true' });
-    const toast = el('div', { class: 'toast', role: 'status', 'aria-live': 'polite' });
+    const toast = el('div', { class: 'toast glass', role: 'status', 'aria-live': 'polite' });
     const live = el('div', { class: 'sr-only', 'aria-live': 'polite' });
     // v1.9 compass (decorative): world north (-z) relative to the camera heading, updated per frame from matrixWorld
-    const compass = el('div', { class: 'compass', 'aria-hidden': 'true', html:
+    const compass = el('div', { class: 'compass glass', 'aria-hidden': 'true', html:
       '<svg viewBox="0 0 48 48" width="100%" height="100%">'
       + '<circle cx="24" cy="24" r="21" fill="none" stroke="rgba(243,237,225,.22)" stroke-width="1"/>'
       + '<g stroke="rgba(243,237,225,.5)" stroke-width="1.2"><path d="M24 4.5v3.5M24 40v3.5M4.5 24h3.5M40 24h3.5"/></g>'
@@ -317,11 +348,23 @@ export function mountUI({ root, SPEC, params }) {
       rose.setAttribute('transform', `rotate(${(-deg).toFixed(2)} 24 24)`);
       nTxt.setAttribute('transform', `rotate(${deg.toFixed(2)} 24 7.2)`);          // keep the N upright
     });
-    const chrome = el('div', { class: 'chrome' }, [tagLayer, topbar, compass, todGroup, caption, dock, panel, minCta]);
+    const chrome = el('div', { class: 'chrome' }, [tagLayer, topbar, compass, todGroup, caption, dock, panel, minCta, lookPanel.el]);
     const letterbox = el('div', { class: 'letterbox', 'aria-hidden': 'true' }, [el('span', { class: 'lb-top' }), el('span', { class: 'lb-bot' })]);
     const presentTitle = el('div', { class: 'present-title', 'aria-live': 'polite' });
     const blank = el('div', { class: 'blank', 'aria-label': t('Blank screen') });
     root.append(chrome, letterbox, presentTitle, blank, toast, live);
+    // v1.12 frosted glass: a blurred low-res copy of the 3D view behind each glass surface (no CSS filters)
+    frost = createFrost(app, {
+      canvas,
+      enabled: params.frost ?? !matchMedia('(prefers-reduced-transparency: reduce)').matches,
+      isPaused: () => presenting || blanked,
+      targets: [
+        { el: panel }, { el: dock }, { el: compass }, { el: tourBtn }, { el: infoBtn }, { el: lookBtn },
+        { el: lookPanel.el, active: () => lookPanel.isOpen() },
+        { el: todGroup.querySelector('.tr-bubble') }, { el: todGroup.querySelector('.tr-window') },
+        { el: caption, active: () => caption.classList.contains('show') },
+      ],
+    });
     requestAnimationFrame(() => chrome.classList.add('in'));
     if (!minimal && !params.embed && !isPhone() && innerWidth >= 1100) setPanel(true);
 
@@ -331,6 +374,7 @@ export function mountUI({ root, SPEC, params }) {
     /* --- views --- */
     function onView({ id }) {
       for (const [v, b] of Object.entries(dockBtns)) { const on = v === id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); if (on && b.scrollIntoView && isPhone()) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }
+      placePill(id, true);
       const label = t(cams[id]?.label || id);
       canvas.setAttribute('aria-label', `${t('Interactive 3D view')}: ${B.name}, ${label}`);
       live.textContent = label;
@@ -375,8 +419,8 @@ export function mountUI({ root, SPEC, params }) {
       }
       const time = el('span', { class: 'tr-time' }), ph = el('span', { class: 'tr-phase' });
       const root = el('div', { class: 'tod-ruler', role: 'slider', tabindex: '0', 'aria-label': t('Time of day'), 'aria-valuemin': '0', 'aria-valuemax': '1' }, [
-        el('div', { class: 'tr-bubble' }, [time, ph]),
-        el('div', { class: 'tr-window' }, [track, el('span', { class: 'tr-needle', 'aria-hidden': 'true' })]),
+        el('div', { class: 'tr-bubble glass' }, [time, ph]),
+        el('div', { class: 'tr-window glass' }, [track, el('span', { class: 'tr-needle', 'aria-hidden': 'true' })]),
       ]);
 
       let shown = app.getTime(), target = shown, vel = 0, raf = 0, dragging = false, lastX = 0, lastT = 0, selfSet = false;
@@ -428,8 +472,8 @@ export function mountUI({ root, SPEC, params }) {
 
     /* --- tour --- */
     let capTimer = 0;
-    function showCaption(text) { clearTimeout(capTimer); capText.textContent = t(text); caption.classList.add('show'); }
-    function hideCaption(delay = 0) { clearTimeout(capTimer); capTimer = setTimeout(() => caption.classList.remove('show'), delay); }
+    function showCaption(text) { clearTimeout(capTimer); capText.textContent = t(text); caption.classList.add('show'); frost?.invalidate(700); }
+    function hideCaption(delay = 0) { clearTimeout(capTimer); capTimer = setTimeout(() => { caption.classList.remove('show'); frost?.invalidate(700); }, delay); }
     function startTour(opts) { if (app.isInterior()) app.setView('hero', { instant: true }); app.tour.play(opts); }
     app.on('tour', ({ playing }) => {
       tourBtn.setAttribute('aria-pressed', String(playing));
@@ -478,7 +522,7 @@ export function mountUI({ root, SPEC, params }) {
       { label: 'Plaza', pos: [st.plaza.treeRing.c[0], 6, st.plaza.treeRing.c[1]] },
       gate && { label: 'Entrance', pos: [gate.c[0], gate.apex + 1.5, gate.c[1]] },
     ].filter(Boolean).map((a) => {
-      const plate = el('span', { class: 'tag-plate', text: t(a.label) });
+      const plate = el('span', { class: 'tag-plate glass', text: t(a.label) });
       const node = el('div', { class: 'tag' }, [el('span', { class: 'tag-pin' }), el('span', { class: 'tag-leader' }), plate]);
       tagLayer.appendChild(node);
       return { ...a, node, plate, w: 0, h: 0, shown: false };
@@ -489,7 +533,7 @@ export function mountUI({ root, SPEC, params }) {
         for (const a of anchors) { a.w = a.plate.offsetWidth; a.h = a.plate.offsetHeight; }
         const r = (n) => (n && n.offsetParent !== null ? n.getBoundingClientRect() : null);
         topLimit = Math.max(topbar.getBoundingClientRect().bottom || 64, todGroup.getBoundingClientRect().bottom || 0) + 6;
-        blockers = [r(dock), panelOpen ? r(panel) : null, r(minCta), r(compass)].filter(Boolean);
+        blockers = [r(dock), panelOpen ? r(panel) : null, r(minCta), r(compass), lookPanel.isOpen() ? r(lookPanel.el) : null].filter(Boolean);
         leader = isPhone() ? 22 : 34;
       });
     }
@@ -537,6 +581,7 @@ export function mountUI({ root, SPEC, params }) {
       const k = e.key;
       stopTour();
       if (k === 'p' || k === 'P') { setPresent(!presenting); e.preventDefault(); return; }
+      if ((k === 'l' || k === 'L') && !presenting) { lookPanel.toggle(); e.preventDefault(); return; }
       if (!presenting) return;
       if (k === 'Escape') { setPresent(false); return; }
       if (k === 'b' || k === 'B' || k === '.') { setBlank(!blanked); e.preventDefault(); return; }
