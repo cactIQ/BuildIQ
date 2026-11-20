@@ -105,3 +105,14 @@ locality names, or the listing site's name, anywhere. Branding comes from `SPEC.
 - Walk collision uses `colliders` (plan rectangles `[x0, z0, x1, z1]`) and `bounds`. Owner: core (`src/walk.js`,
   `src/interior-flat.js`, `src/materials/flat.js`, `src/tex/recipes-flat.js`).
 - Flat budget (`npm test`): dollhouse <= 45 draw calls, walk <= 90 (the floor reflection draws the room twice), <= 150k tris.
+## Tour and motion blur (v1.16)
+- `SPEC.tour` (exterior view ids) and `SPEC.tourTime` (same length, time of day 0..1 per stop; spec test enforces).
+- `app.setView(id, { duration, instant, v0, tod })`: `v0` = camera velocity carried into the flight, `tod` = time of
+  day reached on landing (exterior only). Events: `tour`, `tourStep`, `tourCut` ({ seconds }: loop restart fade),
+  `tourEnd`, `motionblur`.
+- `app.motionBlur`: `set(on)` (async; compiles the blur pass first), `enabled()`, `setShutter(deg)`, `shutter()`.
+  On by default for the high tier (owner decision 2026-11-20), off on low; never in `?shot`. Owner-approved exception
+  to "no composer by default". `params.mblur`: null = auto, true/false = forced.
+- Motion blur target: HalfFloat, MSAA 4 (0 on the low tier), DepthTexture, `isXRRenderTarget = true`, texture
+  colour space sRGB. If a three upgrade changes how XR targets pick tone mapping / output colour space, re-run the
+  pixel-identity probe in HANDOVER v1.16.

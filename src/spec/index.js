@@ -3,9 +3,9 @@ import { brand } from './brand.js';
 import { global } from './global.js';
 import { site } from './site.js';
 import { towers } from './towers.js';
-import { cameras, tour, orbitLimits } from './cameras.js';
+import { cameras, tour, tourTime, orbitLimits } from './cameras.js';
 import { quality, embed, i18n } from './quality.js';
 import { looks } from './looks.js';
 
-export const SPEC = { brand, global, site, towers, cameras, tour, orbitLimits, quality, embed, i18n, looks, facts: [] };
+export const SPEC = { brand, global, site, towers, cameras, tour, tourTime, orbitLimits, quality, embed, i18n, looks, facts: [] };
 export default SPEC;

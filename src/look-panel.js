@@ -41,6 +41,32 @@ export function mountLookPanel({ app, SPEC, el, store, onToggle = () => {} }) {
   ]);
   const note = el('p', { class: 'lk-note', 'aria-live': 'polite', text: 'Saved looks stay in this browser. Copy template to make one the default for everyone.' });
   const out = el('textarea', { class: 'lk-out', readonly: true, rows: '3', hidden: true, 'aria-label': 'Look template' });
+
+  /* --- v1.16 camera motion blur (try-out switch; remembered in this browser; ?mblur=1 also turns it on) --- */
+  const MB_KEY = 'mblur';
+  const mbSwitch = el('button', { class: 'lk-switch', type: 'button', role: 'switch', 'aria-checked': 'false', 'aria-label': 'Motion blur', onClick: () => setBlur(!app.motionBlur.enabled()) });
+  const shVal = el('span', { class: 'lk-val' });
+  const shIn = el('input', { type: 'range', min: 90, max: 360, step: 15, class: 'lk-range', 'aria-label': 'Shutter angle' });
+  const shRow = el('label', { class: 'lk-row', hidden: true, title: '180° = film look. Higher = longer streaks.' }, [el('span', { class: 'lk-lbl', text: 'Shutter' }), shVal, shIn]);
+  const mb = el('div', { class: 'lk-mb' }, [el('span', { class: 'lk-lbl', text: 'Motion blur' }), mbSwitch, shRow]);
+  shIn.addEventListener('input', () => { app.motionBlur.setShutter(Number(shIn.value)); syncBlur(); saveBlur(); });
+  function syncBlur() {
+    const on = app.motionBlur.enabled(), sh = app.motionBlur.shutter();
+    mbSwitch.setAttribute('aria-checked', String(on)); shRow.hidden = !on; shIn.value = String(sh); shVal.textContent = `${sh}°`;
+  }
+  function saveBlur() { store.set(MB_KEY, JSON.stringify({ on: app.motionBlur.enabled(), shutter: app.motionBlur.shutter() })); }
+  async function setBlur(on) {
+    mbSwitch.disabled = true;                                 // first switch-on compiles shaders (a second or two)
+    try { await app.motionBlur.set(on); } finally { mbSwitch.disabled = false; syncBlur(); saveBlur(); }
+  }
+  try {
+    const s = JSON.parse(store.get(MB_KEY) || 'null');
+    // this browser's last choice wins over the tier default; an explicit ?mblur=0/1 wins over both
+    if (s) {
+      app.motionBlur.setShutter(s.shutter);
+      if (app.params?.mblur == null && !!s.on !== app.motionBlur.enabled()) setBlur(!!s.on);
+    }
+  } catch { /* unreadable store: keep defaults */ }
   const panel = el('section', { class: 'look-panel glass', 'aria-label': 'Look', hidden: true }, [
     el('header', { class: 'lk-head' }, [
       el('span', { class: 'lk-title', text: 'Look' }),
@@ -49,6 +75,7 @@ export function mountLookPanel({ app, SPEC, el, store, onToggle = () => {} }) {
     ]),
     chips,
     el('div', { class: 'lk-rows' }, rows.map((r) => r.node)),
+    mb,
     el('div', { class: 'lk-actions' }, [
       el('button', { class: 'lk-btn', type: 'button', text: 'Reset', onClick: () => pick(SPEC.looks?.default || 'natural') }),
       el('button', { class: 'lk-btn', type: 'button', text: 'Save…', onClick: () => { saveRow.hidden = !saveRow.hidden; if (!saveRow.hidden) nameIn.focus(); } }),
@@ -103,9 +130,9 @@ export function mountLookPanel({ app, SPEC, el, store, onToggle = () => {} }) {
   let open = false;
   function toggle(on = !open) {
     open = on; panel.hidden = !on;
-    if (on) { current = normalizeLook(app.getLook()); syncInputs(); renderChips(); }
+    if (on) { current = normalizeLook(app.getLook()); syncInputs(); renderChips(); syncBlur(); }
     onToggle(on);
   }
-  syncInputs(); renderChips();
+  syncInputs(); renderChips(); syncBlur();
   return { el: panel, toggle, isOpen: () => open };
 }

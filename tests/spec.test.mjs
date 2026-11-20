@@ -41,6 +41,8 @@ export function checkSpec(S) {
     if (c.shift && !(c.shift.horizonY > 0 && c.shift.horizonY < 1)) errs.push(`camera ${id}: horizonY range`);
   }
   for (const v of S.tour) { if (!S.cameras[v]) errs.push(`tour view ${v} missing`); else if (S.cameras[v].interior) errs.push(`tour view ${v} is interior`); }
+  // v1.16 tour time-lapse: one time of day (0..1) per tour stop
+  if (S.tourTime && (S.tourTime.length !== S.tour.length || S.tourTime.some((k) => !(k >= 0 && k <= 1)))) errs.push('tourTime must match tour, values 0..1');
   const kfs = S.global.timeOfDay.keyframes;
   if (kfs[0].k !== 0 || kfs[kfs.length - 1].k !== 1) errs.push('ToD keyframes must span 0..1');
   for (const kf of kfs) if (kf.sunElev < 12) errs.push(`keyframe ${kf.id}: sun below 12 deg`);

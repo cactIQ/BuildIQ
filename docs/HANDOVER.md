@@ -349,3 +349,31 @@ reviewed it against the photo and the code before the build.
   paused while it runs).
 - Not run: `npm test` (no Node here). New test: `tests/modules.test.mjs` "interior flat builds within budget, grounded,
   walkable".
+## v1.16 update (2026-11-20): cinematic tour and motion blur (owner tool)
+- Process: review of the tour as a 3D artist (measured camera speed in headless Chrome), brief, independent review
+  (11 required changes; 9 adopted, 2 rejected with reasons below), implementation. Brief: `_internal/brief-v1.16-tour.md`.
+- Pace: 3.4 s flight + 6.5 s drift per shot; the loop is ~66 s (was ~110 s). The camera no longer stops between
+  shots: each flight inherits the drift's velocity (cubic Hermite term in the flight, `setView(..., { v0 })`).
+  Orbit shots turn at 4 deg/s; level shift-lens shots (elevation, pool, clubhouse) push in 2.2 %/s instead of
+  yawing, so verticals stay true.
+- Time-lapse: `SPEC.tourTime` (src/spec/cameras.js) gives each stop a time of day: day -> golden -> dusk -> night
+  (orbit and hero end at night with the lit windows). Time changes only in flight, with the flight's easing. The endless
+  attract loop restarts through a 0.75 s fade to black ("the next morning"), not a fast rewind.
+- Sun: every flight (tour or dock click) now swings the art-directed sun and its shadows over the flight instead of
+  switching them at take-off. Shadows refresh every frame during these flights on the high tier.
+- Tour chrome: the dock, compass and details panel fade out while the tour plays; Stop, caption and time ruler stay.
+  New caption for the night stop (+ hi, mr: native review wanted).
+- Motion blur (`src/motion-blur.js`; owner decision: ON by default on the high tier, off on the low tier/phones; `?mblur=0|1` forces it, the Look panel choice is remembered per browser): camera blur reconstructed from depth, 12 jittered taps, shutter
+  45-360 deg (180 = film look). Switch and Shutter slider at the bottom of the Look panel (L key, or ?tune=1); remembered
+  in this browser; `?mblur=1` turns it on at boot. It renders through a target only while the camera moves; a static
+  frame is drawn directly. The target uses three's XR flag with an sRGB-tagged float texture, so materials run exactly
+  as on screen: checked pixel-identical to blur off, and only 1 new program (the blur pass). A Linear target was tried
+  first and made distant fog hazier (three mixes fog after the sRGB encode).
+- Review items not adopted: tone-mapping inside the blur pass (would grade the sky twice and still need new programs);
+  resetting blur history on lens change (lens changes are real motion).
+- Checked: 0 console errors/warnings: tour loop with cut, blur on/off, flat dollhouse + walk with blur on. Phone
+  390 px mid-tour: dock hidden, Stop/ruler/caption visible. Shots: `shots/v1.16/` (night orbit/hero, dusk aerialN,
+  Look panel, phone).
+- Not run: `npm test` (no Node). Tests added: spec.test (tourTime length/range), params.test (mblur).
+- Known: env lighting still switches in 9 steps along the time of day (now hidden by flight motion); interiors are not
+  in the tour yet (needs a scene cut through black, the veil now exists for it).

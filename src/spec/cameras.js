@@ -25,4 +25,7 @@ export const cameras = {
 };
 // v1.6 full tour: every exterior view incl. the free-orbit overview (loops seamlessly in idle attract mode)
 export const tour = ['hero', 'aerial', 'elevation', 'pool', 'clubhouse', 'aerialN', 'orbit', 'hero'];
+// v1.16 tour time-lapse: time of day (k) each stop is reached at, eased in flight only: day -> golden -> dusk -> night
+// (two night shots for the lit facades). The endless loop restarts through a fade to black ("next morning").
+export const tourTime = [0.0, 0.05, 0.18, 0.3, 0.42, 0.65, 1.0, 1.0];
 export const orbitLimits = { minDistance: 12, maxDistance: 320, minPolar: 0.15, maxPolar: 1.48, minTargetY: 0.5 };

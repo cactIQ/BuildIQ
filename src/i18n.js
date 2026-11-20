@@ -33,6 +33,7 @@ export const STRINGS = [
   'The pool deck with a raised kids’ pool and a jacuzzi.',
   'The clubhouse opens directly onto the pool deck.',
   'From the north: the rear tower and its rooftop gardens.',
+  'After dark, warm accent lighting brings the facades to life.',   // v1.16
   'Enquire to learn more about the project.',
   // misc
   'Snapshot saved', 'Snapshot failed', 'Interactive 3D view', 'Blank screen',
@@ -69,6 +70,7 @@ const hi = {
   'The pool deck with a raised kids’ pool and a jacuzzi.': 'बच्चों के ऊँचे पूल और जकूज़ी के साथ पूल डेक।',
   'The clubhouse opens directly onto the pool deck.': 'क्लबहाउस सीधे पूल डेक पर खुलता है।',
   'From the north: the rear tower and its rooftop gardens.': 'उत्तर से: पिछला टॉवर और उसके छत के बगीचे।',
+  'After dark, warm accent lighting brings the facades to life.': 'रात में, गर्म एक्सेंट लाइटिंग अग्रभागों को जीवंत कर देती है।',
   'Enquire to learn more about the project.': 'प्रोजेक्ट के बारे में अधिक जानने के लिए पूछताछ करें।',
   'Snapshot saved': 'स्नैपशॉट सहेजा गया', 'Snapshot failed': 'स्नैपशॉट नहीं बन सका', 'Interactive 3D view': 'इंटरैक्टिव 3D दृश्य',
   'Blank screen': 'स्क्रीन खाली करें',
@@ -106,6 +108,7 @@ const mr = {
   'The pool deck with a raised kids’ pool and a jacuzzi.': 'मुलांच्या उंच तलावासह आणि जकूझीसह पूल डेक.',
   'The clubhouse opens directly onto the pool deck.': 'क्लबहाऊस थेट पूल डेकवर उघडते.',
   'From the north: the rear tower and its rooftop gardens.': 'उत्तरेकडून: मागील टॉवर आणि त्याच्या छतावरील बागा.',
+  'After dark, warm accent lighting brings the facades to life.': 'अंधार पडल्यावर, उबदार ॲक्सेंट लाइटिंग दर्शनी भागांना जिवंत करते.',
   'Enquire to learn more about the project.': 'प्रकल्पाबद्दल अधिक जाणून घेण्यासाठी चौकशी करा.',
   'Snapshot saved': 'स्नॅपशॉट जतन झाला', 'Snapshot failed': 'स्नॅपशॉट तयार होऊ शकला नाही', 'Interactive 3D view': 'परस्परसंवादी 3D दृश्य',
   'Blank screen': 'स्क्रीन रिकामी करा',

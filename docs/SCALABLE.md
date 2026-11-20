@@ -53,3 +53,10 @@ spec data, and the set can become a starter kit for the next project.
 
 Next step for this kit: move the furniture pieces (sofa, bed, dining set, vanity, kitchen run) into a small
 `src/furniture.js` library so a new floor plan only lists positions.
+### v1.16 addition: cinematic kit
+| Asset | Where | To reuse |
+|---|---|---|
+| Continuous tour (drift + velocity hand-off, push-in for level shots) | `src/core.js` tour block, `TOUR` | List views in `SPEC.tour` |
+| Time-lapse tour | `SPEC.tourTime` | One time of day per stop |
+| Fade-through-black cut | `.tour-veil` + `tourCut` event | Reusable for interior scene cuts |
+| Camera motion blur | `src/motion-blur.js` | `createMotionBlur({ THREE, renderer })`, call `render(scene, camera, dt)` |

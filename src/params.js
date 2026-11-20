@@ -27,6 +27,7 @@ export function parseParams(search, SPEC) {
     frost: p.has('frost') ? bool('frost') : null,              // v1.12 glass UI blur: null = auto
     look: /^[a-z0-9-]{1,24}$/.test(p.get('look') || '') ? p.get('look') : null,   // v1.13 look preset id (SPEC.looks)
     tune: bool('tune'),                                         // v1.13 show the look (grade) panel button
+    mblur: p.has('mblur') ? bool('mblur') : null,              // v1.16 camera motion blur: null = auto (on for the high tier)
     q: ['high', 'low'].includes(q) ? q : null,
     only: only.length ? only : null,
     debug: ['ids', 'normals', 'overdraw', 'stats'].includes(debug) ? debug : null,

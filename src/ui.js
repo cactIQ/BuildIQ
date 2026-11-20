@@ -17,6 +17,7 @@ const CAPTIONS = {
   pool: 'The pool deck with a raised kids’ pool and a jacuzzi.',
   clubhouse: 'The clubhouse opens directly onto the pool deck.',
   aerialN: 'From the north: the rear tower and its rooftop gardens.',
+  orbit: 'After dark, warm accent lighting brings the facades to life.',   // v1.16 night stop of the tour
 };
 // core progress labels -> friendly stage captions (i18n keys)
 const STAGES = {
@@ -398,7 +399,8 @@ export function mountUI({ root, SPEC, params }) {
     const letterbox = el('div', { class: 'letterbox', 'aria-hidden': 'true' }, [el('span', { class: 'lb-top' }), el('span', { class: 'lb-bot' })]);
     const presentTitle = el('div', { class: 'present-title', 'aria-live': 'polite' });
     const blank = el('div', { class: 'blank', 'aria-label': t('Blank screen') });
-    root.append(chrome, letterbox, presentTitle, blank, toast, live);
+    const veil = el('div', { class: 'tour-veil', 'aria-hidden': 'true' });            // v1.16 tour loop: fade through black
+    root.append(veil, chrome, letterbox, presentTitle, blank, toast, live);
     // v1.12 frosted glass: a blurred low-res copy of the 3D view behind each glass surface (no CSS filters)
     frost = createFrost(app, {
       canvas,
@@ -534,6 +536,8 @@ export function mountUI({ root, SPEC, params }) {
     app.on('tour', ({ playing }) => {
       tourBtn.setAttribute('aria-pressed', String(playing));
       tourBtn.classList.toggle('on', playing);
+      document.body.classList.toggle('touring', playing); frost?.invalidate(800);   // v1.16 chrome steps back
+      if (!playing) veil.classList.remove('on');
       tourBtn.querySelector('.ico').innerHTML = svg(playing ? 'stop' : 'play');
       tourBtn.querySelector('.lbl').textContent = t(playing ? 'Stop tour' : 'Tour');
       if (playing) showCaption(CAPTIONS[SPEC.tour[0]] || 'Placeholder caption');
@@ -541,6 +545,8 @@ export function mountUI({ root, SPEC, params }) {
       tourEnded = false;
     });
     app.on('tourStep', ({ id }) => { if (CAPTIONS[id]) showCaption(CAPTIONS[id]); });
+    // v1.16 endless loop restart: fade to black, core cuts to the morning shot, fade back in
+    app.on('tourCut', ({ seconds }) => { veil.classList.add('on'); setTimeout(() => veil.classList.remove('on'), seconds * 1000 + 120); });
     app.on('tourEnd', () => {
       tourEnded = true;
       showCaption('Enquire to learn more about the project.');

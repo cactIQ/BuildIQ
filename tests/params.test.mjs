@@ -64,6 +64,8 @@ test('presetTanV `fit` crops the sides on narrow canvases (v1.13 portrait framin
 test('parseParams: look and tune', () => {
   assert.equal(parseParams('?look=vivid&tune=1', SPEC).look, 'vivid');
   assert.equal(parseParams('?tune=1', SPEC).tune, true);
+  assert.equal(parseParams('?mblur=1', SPEC).mblur, true); assert.equal(parseParams('?mblur=0', SPEC).mblur, false);
+  assert.equal(parseParams('', SPEC).mblur, null);   // v1.16 auto
   assert.equal(parseParams('?look=<script>', SPEC).look, null);
 });
 

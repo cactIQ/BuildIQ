@@ -13,6 +13,7 @@ import { createTextures } from './textures.js';
 import { createMaterialLib, defineBaseMaterials } from './materials/base.js';
 import { validateRegistry } from './validate.js';
 import { createWalk } from './walk.js';
+import { createMotionBlur } from './motion-blur.js';
 
 const EXTERIOR_MODULES = ['site', 'tower', 'amenities', 'vegetation', 'props'];
 const MODULE_FILES = { site: './site.js', tower: './tower.js', amenities: './amenities.js', vegetation: './vegetation.js', props: './props.js', gym: './interior-gym.js', flat: './interior-flat.js' };
@@ -71,7 +72,10 @@ export async function createApp({ canvas, container = document.body, onProgress 
     // keep the current preset framing when the aspect changes (unless the user is orbiting freely)
     const p = SPEC.cameras[currentView]; if (p && !flight && !userMoved) lens = presetLens(p);
     applyLens();
+    mblur?.reset();                                  // v1.16: new target size / lens -> no smear from the old matrix
   };
+  // v1.16 camera motion blur (owner tool, opt-in; src/motion-blur.js). Low tier: no MSAA in the blur target.
+  const mblur = createMotionBlur({ THREE, renderer, samples: tierName === 'low' ? 0 : 4 });
 
   let contextLosses = 0;
   canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); contextLosses++; ev.emit('contextlost', { count: contextLosses }); if (contextLosses >= 2) ev.emit('fallback', { reason: 'context-lost' }); });
@@ -208,7 +212,11 @@ export async function createApp({ canvas, container = document.body, onProgress 
     // curated views may art-direct the sun azimuth (archviz practice); free orbit uses the keyframe azimuth
     // art-directed view sun: azimuth from the view; elevation never lower than ~80 % of the keyframe's, so a
     // curated low "golden" sun does not turn midday into a long-shadow evening (v1.1)
-    dirFrom(Math.max(12, viewSun ? Math.max(viewSun.elev, s.sunElev * 0.8) : s.sunElev), viewSun?.azim ?? s.sunAzim, sunDir);
+    // v1.16: during a flight the sun blends from where it was (sunBlend.e0/a0) to the new view's sun, shortest arc
+    let el = viewSun ? Math.max(viewSun.elev, s.sunElev * 0.8) : s.sunElev, az = viewSun?.azim ?? s.sunAzim;
+    if (sunBlend) { const w = sunBlend.w; el = sunBlend.e0 + (el - sunBlend.e0) * w; az = sunBlend.a0 + ((((az - sunBlend.a0) % 360) + 540) % 360 - 180) * w; }
+    sunNow.elev = el; sunNow.azim = az;
+    dirFrom(Math.max(12, el), az, sunDir);
     // v1.2 moonlight: after dusk the key light swings to the moon (its own direction, consistent with the visible
     // moon in the sky) instead of re-using the art-directed sun azimuth
     const mn = SPEC.global.timeOfDay.moon, mw = THREE.MathUtils.smoothstep(s.night, 0.6, 0.95);
@@ -222,7 +230,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
     renderer.toneMappingExposure = s.exposure;
     scene.fog.color.copy(lerpColor(a.fogColor, b.fogColor, s.t)); scene.fog.density = s.fog;
     // the visible sky's sun glow follows an art-directed view sun (env keyframes stay generic)
-    setSkyFor(viewSun ? { ...s, sunAzim: viewSun.azim } : s, skyMat, a, b);
+    setSkyFor(viewSun || sunBlend ? { ...s, sunAzim: az } : s, skyMat, a, b);
     farTreeMat.color.copy(lerpColor(a.farTree, b.farTree, s.t));
     // fair-weather cumulus: white by day, warm-lit at golden/dusk, faint blue-grey at night
     // v1.6: per-keyframe cloud colour (white -> peach -> dusk violet -> night blue-grey)
@@ -264,8 +272,14 @@ export async function createApp({ canvas, container = document.body, onProgress 
     : p);
   const presetLens = (p) => { const q = presetFor(p); return { tanV: presetTanV(q, viewAspect), shift: q.shift ? q.shift.horizonY - 0.5 : 0 }; };
 
-  let currentView = params.view, flight = null, viewSun = null;
-  function setView(id, { instant = false, duration = 1.9 } = {}) {
+  let currentView = params.view, flight = null, viewSun = null, sunBlend = null;
+  const sunNow = { elev: 0, azim: 0 };                // sun angles last applied (start of the next sun blend)
+  /**
+   * @param {string} id camera preset
+   * @param {{instant?: boolean, duration?: number, v0?: THREE.Vector3, tod?: number}} o
+   *   v0: camera velocity to carry into the flight (tour: no stop between shots); tod: time of day to reach on landing
+   */
+  function setView(id, { instant = false, duration = 1.9, v0 = null, tod = null } = {}) {
     const p = SPEC.cameras[id]; if (!p) return false;
     // level shift-lens presets have polar = PI/2; OrbitControls would otherwise clamp them to maxPolar and tilt them
     controls.maxPolarAngle = p.shift ? Math.PI / 2 : SPEC.orbitLimits.maxPolar;
@@ -273,19 +287,29 @@ export async function createApp({ canvas, container = document.body, onProgress 
     currentView = id; userMoved = false; relaxShift = false;
     applyMode(p);                                     // v1.15: orbit / look / dollhouse / walk (before the flight reads the target)
     const nextSun = p.sun || null;   // {azim, elev}: art-directed sun for curated views (free orbit: keyframe sun)
-    if (!activeInterior && JSON.stringify(nextSun) !== JSON.stringify(viewSun)) { viewSun = nextSun; applyTime(k, { immediateShadow: true }); }
+    const jump = instant || params.freeze || matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!activeInterior && (sunBlend || JSON.stringify(nextSun) !== JSON.stringify(viewSun))) {   // (re-base a swing in progress)
+      // v1.16: a flight swings the sun (and its shadows) over to the new view's sun instead of switching it at take-off
+      sunBlend = jump ? null : { e0: sunNow.elev, a0: sunNow.azim, w: 0 };
+      viewSun = nextSun; applyTime(jump && tod != null ? tod : k, { immediateShadow: true });
+    }
     const q = presetFor(p);
     const to = { pos: new THREE.Vector3(...q.pos), target: new THREE.Vector3(...q.target), lens: presetLens(p) };
-    if (instant || params.freeze || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (jump) {
       camera.position.copy(to.pos); controls.target.copy(to.target); lens = to.lens; applyLens(); camera.lookAt(to.target); flight = null;
+      if (tod != null && !activeInterior) applyTime(tod, { immediateShadow: true });
+      mblur.reset();
     } else {
-      flight = { t: 0, dur: duration, from: { pos: camera.position.clone(), target: controls.target.clone(), lens: { ...lens } }, to };
+      flight = { t: 0, dur: duration, from: { pos: camera.position.clone(), target: controls.target.clone(), lens: { ...lens } }, to,
+        v0: v0 ? v0.clone() : null, tod: tod != null && !activeInterior ? { a: k, b: tod } : null };
     }
     if (typeof p.tod === 'number' && params.shot && !params.todExplicit) applyTime(p.tod, { immediateShadow: true });
     ev.emit('view', { id, preset: p });
     return true;
   }
-  controls.addEventListener('start', () => { flight = null; userMoved = true; if (Math.abs(lens.shift) > 0) relaxShift = true; tourStop(); ev.emit('interact', {}); });
+  /** Land any half-done sun swing (flight interrupted by the user). */
+  const settleSun = () => { if (sunBlend) { sunBlend = null; applyTime(k, { immediateShadow: true }); } };
+  controls.addEventListener('start', () => { flight = null; settleSun(); userMoved = true; if (Math.abs(lens.shift) > 0) relaxShift = true; tourStop(); ev.emit('interact', {}); });
   let relaxShift = false, userMoved = false;
 
   /* ----------------------------- interior scenes (lazy, one per module) ----------------------------- */
@@ -315,6 +339,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
           // never compiles a program mid-walk
           built.setMode?.('all');
           await renderer.compileAsync(iscene, camera);
+          if (mblur.enabled()) await mblur.prepare(iscene, camera);   // v1.16: blur-target variants too
           interiors.set(key, it);
         } catch (err) { console.error(`[${key}] ${(err && err.stack) || err}`); ev.emit('error', { code: 'interior' }); return false; }
         finally { if (armed) setTimeout(() => { readyPrograms = renderer.info.programs?.length || armed; }, 1500); }
@@ -330,7 +355,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
     if (p.interior && !p.mode) controls.target.copy(new THREE.Vector3(...q.target).sub(camera.position).setLength(0.1).add(camera.position));
     else controls.target.set(...q.target);
     camera.lookAt(controls.target);
-    lens = presetLens(p); applyLens(); flight = null;
+    lens = presetLens(p); applyLens(); flight = null; mblur.reset();
     applyMode(p);
     ev.emit('view', { id, preset: p });
     return true;
@@ -367,36 +392,68 @@ export async function createApp({ canvas, container = document.body, onProgress 
   }
 
   /* ----------------------------- tour ----------------------------- */
-  // v1.6 cinematic tour: slow eased flights, a long dwell per view with a smooth eased orbit (alternating direction,
-  // gentle for close/level views), optional endless loop (idle "attract" mode).
+  // v1.16 cinematic tour: ~10 s per shot (3.4 s flight + 6.5 s drift; loop ~70 s, was ~110 s). The camera never stops
+  // between shots: the drift eases in after landing, then runs at constant speed into the next flight, which inherits
+  // its velocity (setView v0). Orbit shots turn around the target; level shift-lens shots push in along the view axis
+  // (yaw would break their two-point perspective). Time of day follows SPEC.tourTime (day -> golden -> dusk -> night),
+  // changing only in flight. The endless (attract) loop restarts through a short fade to black: "the next morning".
   let tour = null;
-  const TOUR = { fly: 4.8, dwell: 11, orbitDeg: 26, levelOrbitDeg: 9 };
+  const TOUR = { fly: 3.4, dwell: 6.5, ramp: 1.6, orbitDegPerS: 4, pushPerS: 0.022, cut: 0.75 };   // push: ~14 % closer per shot
+  const UP = new THREE.Vector3(0, 1, 0);
+  const tourTod = (i) => (typeof SPEC.tourTime?.[i] === 'number' ? SPEC.tourTime[i] : null);
   function tourPlay({ loop = false } = {}) {
-    tour = { i: 0, dwell: 0, loop, dir: 1, prevA: 0 };
-    setView(SPEC.tour[0], { duration: TOUR.fly });
+    tour = { i: 0, dwell: 0, loop, dir: 1, d0: 1, p: SPEC.cameras[SPEC.tour[0]] || {}, cut: -1,
+      vel: new THREE.Vector3(), last: camera.position.clone() };
+    const p0 = SPEC.cameras[SPEC.tour[0]];                  // already there: a short settle (time eases to the first stop)
+    setView(SPEC.tour[0], { duration: p0 && camera.position.distanceTo(new THREE.Vector3(...p0.pos)) < 2 ? 1.6 : TOUR.fly, tod: tourTod(0) });
     ev.emit('tour', { playing: true, loop });
   }
   function tourStop() { if (tour) { tour = null; ev.emit('tour', { playing: false }); } }
+  /** One frame of drift at speed fraction v (0..1) for the current shot. */
+  function tourDrift(dt, v) {
+    if (!(dt > 0) || v <= 0) return;
+    if (tour.p.shift) {
+      const off = controls.target.clone().sub(camera.position), d = off.length();
+      if (d > 2) camera.position.addScaledVector(off.normalize(), Math.min(d - 2, tour.d0 * TOUR.pushPerS * v * dt));
+    } else {
+      const off = camera.position.clone().sub(controls.target);
+      off.applyAxisAngle(UP, THREE.MathUtils.degToRad(TOUR.orbitDegPerS) * tour.dir * v * dt);
+      camera.position.copy(controls.target).add(off);
+    }
+    camera.lookAt(controls.target);
+  }
+  function tourGo(opts) {
+    const id = SPEC.tour[tour.i];
+    tour.p = SPEC.cameras[id] || {}; tour.dwell = 0;
+    setView(id, { duration: TOUR.fly, v0: tour.vel, tod: tourTod(tour.i), ...opts });
+    ev.emit('tourStep', { i: tour.i, id });
+  }
   function tourTick(dt) {
     if (!tour) return;
-    if (flight) { tour.prevA = 0; return; }
+    if (flight) { tour.last.copy(camera.position); return; }
+    if (tour.cut >= 0) {                                   // loop restart: keep drifting while the UI veil darkens
+      tour.cut += dt; tourDrift(dt, 1);
+      if (tour.cut >= TOUR.cut) { tour.cut = -1; tour.vel.set(0, 0, 0); tourGo({ instant: true }); tour.last.copy(camera.position); }
+      return;
+    }
+    if (tour.dwell === 0) tour.d0 = camera.position.distanceTo(controls.target);
     tour.dwell += dt;
-    // eased orbit around the target: total sweep per dwell, smoothstep so it starts and ends at rest
-    const p = SPEC.cameras[SPEC.tour[tour.i]] || {};
-    const sweep = THREE.MathUtils.degToRad(p.shift ? TOUR.levelOrbitDeg : TOUR.orbitDeg) * tour.dir;
-    const u = Math.min(1, tour.dwell / TOUR.dwell), a = sweep * u * u * (3 - 2 * u);
-    const off = camera.position.clone().sub(controls.target); off.applyAxisAngle(new THREE.Vector3(0, 1, 0), a - tour.prevA);
-    camera.position.copy(controls.target).add(off); camera.lookAt(controls.target);
-    tour.prevA = a;
+    // speed envelope: ease in after landing; ease out only where the tour really ends (last shot, no loop)
+    const final = !tour.loop && tour.i === SPEC.tour.length - 1;
+    let v = Math.min(1, tour.dwell / TOUR.ramp);
+    if (final) v *= THREE.MathUtils.clamp((TOUR.dwell - tour.dwell) / TOUR.ramp, 0, 1);
+    tourDrift(dt, v);
+    if (dt > 0) tour.vel.copy(camera.position).sub(tour.last).divideScalar(dt);
+    tour.last.copy(camera.position);
     if (tour.dwell > TOUR.dwell) {
-      tour.i++; tour.dwell = 0; tour.prevA = 0; tour.dir = -tour.dir;
+      tour.i++; tour.dir = -tour.dir;
       if (tour.i >= SPEC.tour.length) {
         if (!tour.loop) { tourStop(); ev.emit('tourEnd', {}); return; }
-        tour.i = SPEC.tour[SPEC.tour.length - 1] === SPEC.tour[0] ? 1 : 0;   // seamless loop (tour ends on hero)
+        tour.i = SPEC.tour[SPEC.tour.length - 1] === SPEC.tour[0] ? 1 : 0;   // (tour ends on hero: skip the repeat)
+        tour.cut = 0; ev.emit('tourCut', { seconds: TOUR.cut });
+        return;
       }
-      const id = SPEC.tour[tour.i];             // tour contains exterior views only (spec test enforces)
-      setView(id, { duration: TOUR.fly });
-      ev.emit('tourStep', { i: tour.i, id });
+      tourGo();                                             // tour contains exterior views only (spec test enforces)
     }
   }
 
@@ -470,8 +527,17 @@ export async function createApp({ canvas, container = document.body, onProgress 
     const dt = Math.min(0.05, clock.getDelta());
     if (!params.freeze) simT += dt;
     if (flight) {
-      flight.t += dt / flight.dur; const e = easeInOutCubic(Math.min(1, flight.t));
+      flight.t += dt / flight.dur; const tt = Math.min(1, flight.t), e = easeInOutCubic(tt);
       camera.position.lerpVectors(flight.from.pos, flight.to.pos, e);
+      // v1.16 tour: carry the camera's drift into the flight (cubic Hermite h10 = t - 2t^2 + t^3: slope 1 at take-off,
+      // 0 on landing), so the camera never stops between shots
+      if (flight.v0) camera.position.addScaledVector(flight.v0, flight.dur * (tt - 2 * tt * tt + tt * tt * tt));
+      // v1.16: time-lapse and sun swing ride the same easing (motion hides the stepped env-map switch)
+      if (flight.tod || sunBlend) {
+        if (sunBlend) sunBlend.w = e;
+        applyTime(flight.tod ? THREE.MathUtils.lerp(flight.tod.a, flight.tod.b, e) : k, { immediateShadow: tier.name === 'high' });
+        if (tt >= 1 && sunBlend) { sunBlend = null; applyTime(k, { immediateShadow: true }); }
+      }
       // arc upward mid-flight for a cinematic feel
       camera.position.y += Math.sin(Math.PI * e) * Math.min(25, flight.from.pos.distanceTo(flight.to.pos) * 0.12);
       controls.target.lerpVectors(flight.from.target, flight.to.target, e);
@@ -493,7 +559,7 @@ export async function createApp({ canvas, container = document.body, onProgress 
     if (activeInterior) activeInterior.mod.update?.(f); else for (const m of modules) m.update?.(f);
     renderer.info.reset();
     skyMat.uniforms.uOrigin.value.copy(camera.position);   // sky directions from the eye: horizon stays level at any height
-    renderer.render(target, camera);
+    mblur.render(target, camera, dt);                    // v1.16: plain render unless motion blur is on and the camera moved
     ev.emit('frame', f);
     // stats + dynamic resolution (not in shot/freeze mode)
     frameTimes.push(fms); if (frameTimes.length > SPEC.quality.dynamicRes.sampleFrames) frameTimes.shift();
@@ -561,6 +627,8 @@ export async function createApp({ canvas, container = document.body, onProgress 
   camera.position.copy(save.pos); controls.target.copy(save.target); lens = save.lens; applyLens(); camera.lookAt(controls.target);
   renderer.shadowMap.needsUpdate = true;
   for (let i = 0; i < 3; i++) { renderer.info.reset(); renderer.render(scene, camera); await new Promise((r) => requestAnimationFrame(r)); }
+  // v1.16 motion blur: on by default for the high tier (owner, 2026-11-20); ?mblur=0/1 forces it; never in ?shot
+  if (!params.shot && (params.mblur ?? tier.name === 'high')) { mblur.setEnabled(true); await mblur.prepare(scene, camera); }
   if (startInterior) await setView(params.view, { instant: true });
   mark('warmup');
   readyPrograms = renderer.info.programs?.length || 1;
@@ -576,6 +644,29 @@ export async function createApp({ canvas, container = document.body, onProgress 
     setView, getView: () => currentView,
     setTime: (v) => applyTime(v), getTime: () => k, timeState: () => todState,
     tour: { play: tourPlay, stop: tourStop, playing: () => !!tour },
+    /** v1.16 camera motion blur (owner tool). set() compiles the blur-target shader variants first (no hitch). */
+    motionBlur: {
+      async set(on) {
+        if (params.shot) return false;
+        if (!on) { mblur.setEnabled(false); ev.emit('motionblur', { on: false }); return true; }
+        const armed = readyPrograms; readyPrograms = 0;        // expected compiles: pause the perf warning
+        try {
+          mblur.setEnabled(true);
+          await mblur.prepare(scene, camera);
+          for (const it of interiors.values()) {                // every visibility variant (dollhouse / walk)
+            // prepare() reads the scene synchronously, so the 'all' mode is restored before the next frame draws
+            it.mod.setMode?.('all'); const pr = mblur.prepare(it.scene, camera);
+            it.mod.setMode?.(it === activeInterior && viewMode === 'walk' ? 'walk' : 'dollhouse');
+            await pr;
+          }
+        } finally { if (armed) setTimeout(() => { readyPrograms = renderer.info.programs?.length || armed; }, 1500); }
+        ev.emit('motionblur', { on: true });
+        return true;
+      },
+      enabled: () => mblur.enabled(),
+      setShutter: (deg) => mblur.setShutter(deg),
+      shutter: () => mblur.shutter(),
+    },
     setInteractive(on) { interactive = !!on; controls.enabled = interactive && viewMode !== 'walk'; },
     getMode: () => viewMode,
     walk: {

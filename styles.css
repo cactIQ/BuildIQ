@@ -593,3 +593,27 @@ body.present .flat-seg, body.present .flat-hint, body.present .joy { display: no
   .flat-hint { top: 3.6rem; }
   .joy { width: 100px; height: 100px; bottom: calc(2.6rem + 20px + env(safe-area-inset-bottom)); }
 }
+/* ======================================================================================================
+   v1.16 cinematic tour: while it plays, the dock, compass and details panel step back so the image leads
+   (the Stop button, caption and time ruler stay; any input stops the tour). Loop restart = a short fade to
+   black ("the next morning"). Opacity only.
+   ====================================================================================================== */
+.chrome > .dock, .chrome > .compass { transition: opacity .6s var(--ease); }
+body.touring .chrome > .dock, body.touring .chrome > .compass, body.touring .chrome > .panel { opacity: 0; pointer-events: none; }
+body.touring .chrome > .dock * , body.touring .chrome > .panel * { pointer-events: none; }
+.tour-veil { position: fixed; inset: 0; z-index: 9; background: #000; opacity: 0; pointer-events: none; transition: opacity .9s var(--ease); }
+.tour-veil.on { opacity: 1; transition-duration: .7s; }
+@media (prefers-reduced-motion: reduce) { .tour-veil { transition-duration: .01s !important; } }
+
+/* v1.16 look panel: motion blur (owner tool) */
+.lk-mb { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .5rem .75rem; padding-top: .75rem; margin-top: .25rem;
+  border-top: 1px solid rgba(255,255,255,.12); }
+.lk-mb .lk-row { grid-column: 1 / -1; }
+.lk-mb .lk-row[hidden] { display: none; }
+.lk-switch { position: relative; width: 2.6rem; height: 1.5rem; border-radius: 999px; border: 1px solid rgba(255,255,255,.28);
+  background: rgba(255,255,255,.08); cursor: pointer; padding: 0; transition: background .25s; }
+.lk-switch::after { content: ''; position: absolute; top: .15rem; left: .15rem; width: 1.1rem; height: 1.1rem; border-radius: 50%;
+  background: #F3EDE1; transition: transform .25s var(--ease); }
+.lk-switch[aria-checked="true"] { background: rgba(212,175,106,.55); }
+.lk-switch[aria-checked="true"]::after { transform: translateX(1.1rem); }
+.lk-switch:disabled { opacity: .5; cursor: progress; }
