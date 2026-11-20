@@ -12,10 +12,15 @@ import * as util from './util.js';
 import { createTextures } from './textures.js';
 import { createMaterialLib, defineBaseMaterials } from './materials/base.js';
 import { validateRegistry } from './validate.js';
+import { createWalk } from './walk.js';
 
 const EXTERIOR_MODULES = ['site', 'tower', 'amenities', 'vegetation', 'props'];
-const MODULE_FILES = { site: './site.js', tower: './tower.js', amenities: './amenities.js', vegetation: './vegetation.js', props: './props.js', gym: './interior-gym.js' };
-const MATERIAL_FILES = { site: './materials/site.js', tower: './materials/tower.js', amenities: './materials/amenities.js', vegetation: './materials/amenities.js', props: './materials/site.js', gym: './materials/gym.js' };
+const MODULE_FILES = { site: './site.js', tower: './tower.js', amenities: './amenities.js', vegetation: './vegetation.js', props: './props.js', gym: './interior-gym.js', flat: './interior-flat.js' };
+const MATERIAL_FILES = { site: './materials/site.js', tower: './materials/tower.js', amenities: './materials/amenities.js', vegetation: './materials/amenities.js', props: './materials/site.js', gym: './materials/gym.js', flat: './materials/flat.js' };
+// v1.15 interiors: `interior: true` (legacy) is the gym; otherwise the value names the interior module
+const interiorKey = (p) => (p && p.interior ? (p.interior === true ? 'gym' : p.interior) : null);
+// per-interior scene settings (env strength, background behind the dollhouse model)
+const INTERIOR_ENV = { gym: { env: 0.6 }, flat: { env: 0.8, background: '#1A1815' } };
 
 /* ----------------------------- tiny event bus ----------------------------- */
 function bus() { const m = new Map(); return { on(e, f) { (m.get(e) || m.set(e, []).get(e)).push(f); return () => m.set(e, m.get(e).filter((x) => x !== f)); }, emit(e, d) { (m.get(e) || []).forEach((f) => { try { f(d); } catch (err) { console.error(err); } }); } }; }
@@ -264,11 +269,13 @@ export async function createApp({ canvas, container = document.body, onProgress 
     const p = SPEC.cameras[id]; if (!p) return false;
     // level shift-lens presets have polar = PI/2; OrbitControls would otherwise clamp them to maxPolar and tilt them
     controls.maxPolarAngle = p.shift ? Math.PI / 2 : SPEC.orbitLimits.maxPolar;
-    if (!!p.interior !== !!activeInterior) return switchScene(id, p);
+    if (interiorKey(p) !== (activeInterior ? activeInterior.key : null)) return switchScene(id, p);
     currentView = id; userMoved = false; relaxShift = false;
+    applyMode(p);                                     // v1.15: orbit / look / dollhouse / walk (before the flight reads the target)
     const nextSun = p.sun || null;   // {azim, elev}: art-directed sun for curated views (free orbit: keyframe sun)
-    if (JSON.stringify(nextSun) !== JSON.stringify(viewSun)) { viewSun = nextSun; applyTime(k, { immediateShadow: true }); }
-    const to = { pos: new THREE.Vector3(...p.pos), target: new THREE.Vector3(...p.target), lens: presetLens(p) };
+    if (!activeInterior && JSON.stringify(nextSun) !== JSON.stringify(viewSun)) { viewSun = nextSun; applyTime(k, { immediateShadow: true }); }
+    const q = presetFor(p);
+    const to = { pos: new THREE.Vector3(...q.pos), target: new THREE.Vector3(...q.target), lens: presetLens(p) };
     if (instant || params.freeze || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       camera.position.copy(to.pos); controls.target.copy(to.target); lens = to.lens; applyLens(); camera.lookAt(to.target); flight = null;
     } else {
@@ -281,41 +288,82 @@ export async function createApp({ canvas, container = document.body, onProgress 
   controls.addEventListener('start', () => { flight = null; userMoved = true; if (Math.abs(lens.shift) > 0) relaxShift = true; tourStop(); ev.emit('interact', {}); });
   let relaxShift = false, userMoved = false;
 
-  /* ----------------------------- interior scene (lazy) ----------------------------- */
-  let activeInterior = null, interior = null;
+  /* ----------------------------- interior scenes (lazy, one per module) ----------------------------- */
+  // v1.15: several interiors (gym, flat), each built once on first entry and cached. Views of the same interior
+  // switch by flight (e.g. flat dollhouse <-> walk) without rebuilding.
+  let activeInterior = null;
+  const interiors = new Map();
   async function switchScene(id, p) {
-    if (p.interior) {
-      if (!interior) {
-        ev.emit('progress', { p: 0, label: 'Preparing interior' });
-        const iscene = new THREE.Scene(); iscene.name = 'Interior';
-        const roomEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-        iscene.environment = roomEnv; iscene.environmentIntensity = 0.6;
+    const key = interiorKey(p);
+    if (key) {
+      let it = interiors.get(key);
+      if (!it) {
+        ev.emit('progress', { p: 0, label: 'Preparing interior', view: id });
+        const armed = readyPrograms; readyPrograms = 0;              // the env bake + compile below are expected: pause the perf warning
+        const iscene = new THREE.Scene(); iscene.name = 'Interior_' + key;
+        const cfg = INTERIOR_ENV[key] || { env: 0.6 };
+        iscene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; iscene.environmentIntensity = cfg.env;
+        if (cfg.background) iscene.background = new THREE.Color(cfg.background);
         const ictx = { ...ctx, scene: iscene };
         try {
-          await import(MATERIAL_FILES.gym).then((mm) => mm.define?.(M, SPEC)).catch(() => {});
-          const mod = await import(MODULE_FILES.gym);
+          await import(MATERIAL_FILES[key]).then((mm) => mm.define?.(M, SPEC)).catch((err) => console.error(`[${key}] materials`, err));
+          const mod = await import(MODULE_FILES[key]);
           const built = await mod.build(ictx);
           iscene.add(built.group);
-          interior = { scene: iscene, mod: built };
+          it = { key, scene: iscene, mod: built };
+          // compile every visibility variant now (dollhouse cut walls, walk-only ceiling...) so switching modes later
+          // never compiles a program mid-walk
+          built.setMode?.('all');
           await renderer.compileAsync(iscene, camera);
-        } catch (err) { console.error('[gym]', err); ev.emit('error', { code: 'interior' }); return false; }
+          interiors.set(key, it);
+        } catch (err) { console.error(`[${key}] ${(err && err.stack) || err}`); ev.emit('error', { code: 'interior' }); return false; }
+        finally { if (armed) setTimeout(() => { readyPrograms = renderer.info.programs?.length || armed; }, 1500); }
         ev.emit('progress', { p: 1, label: '' });
       }
-      activeInterior = interior; renderer.toneMapping = THREE.CustomToneMapping;   // same graded curve inside: no recompile
-      // interior: look-around from a fixed spot (exterior orbit limits would push the camera through the walls)
-      controls.minDistance = 0.05; controls.maxDistance = 0.3; controls.enablePan = false; controls.enableZoom = false;
+      activeInterior = it; renderer.toneMapping = THREE.CustomToneMapping;   // same graded curve inside: no recompile
     } else {
       activeInterior = null; renderer.toneMapping = THREE.CustomToneMapping;
-      controls.minDistance = SPEC.orbitLimits.minDistance; controls.maxDistance = SPEC.orbitLimits.maxDistance; controls.enablePan = true; controls.enableZoom = true;
     }
     currentView = id;
-    camera.position.set(...p.pos);
-    if (p.interior) controls.target.copy(new THREE.Vector3(...p.target).sub(camera.position).setLength(0.1).add(camera.position));
-    else controls.target.set(...p.target);
+    const q = presetFor(p);
+    camera.position.set(...q.pos);
+    if (p.interior && !p.mode) controls.target.copy(new THREE.Vector3(...q.target).sub(camera.position).setLength(0.1).add(camera.position));
+    else controls.target.set(...q.target);
     camera.lookAt(controls.target);
     lens = presetLens(p); applyLens(); flight = null;
+    applyMode(p);
     ev.emit('view', { id, preset: p });
     return true;
+  }
+
+  /* ----------------------------- view modes (v1.15) ----------------------------- */
+  // orbit: exterior OrbitControls. look: gym-style look-around from a fixed spot. dollhouse: orbit around a
+  // cut-away interior model. walk: first-person (src/walk.js) with collision; OrbitControls are skipped.
+  let viewMode = 'orbit', interactive = true;
+  const walk = createWalk({ THREE, camera, dom: canvas, onExit: () => { const back = SPEC.cameras[currentView]?.exitTo; if (back) setView(back); }, onMove: () => ev.emit('walkmove', {}) });
+  function applyMode(p) {
+    const mode = p.mode || (p.interior ? 'look' : 'orbit');
+    const prev = viewMode; viewMode = mode;
+    if (prev === 'walk' && mode !== 'walk') { controls.target.set(...walk.lookTarget(2)); walk.disable(); }
+    controls.enabled = interactive && mode !== 'walk';
+    if (mode === 'walk') {
+      const q = presetFor(p), m = activeInterior?.mod || {};
+      walk.enable({ pos: q.pos, target: q.target }, { colliders: m.colliders, bounds: m.bounds, eye: m.eye, radius: m.radius });
+    } else if (mode === 'dollhouse') {
+      const lim = p.limits || {};
+      controls.minDistance = lim.minDistance ?? 8; controls.maxDistance = lim.maxDistance ?? 40;
+      controls.minPolarAngle = lim.minPolar ?? 0.12; controls.maxPolarAngle = lim.maxPolar ?? 1.15;
+      controls.enablePan = false; controls.enableZoom = true;
+    } else if (mode === 'look') {
+      // interior: look-around from a fixed spot (exterior orbit limits would push the camera through the walls)
+      controls.minDistance = 0.05; controls.maxDistance = 0.3; controls.enablePan = false; controls.enableZoom = false;
+      controls.minPolarAngle = SPEC.orbitLimits.minPolar;
+    } else {
+      controls.minDistance = SPEC.orbitLimits.minDistance; controls.maxDistance = SPEC.orbitLimits.maxDistance;
+      controls.minPolarAngle = SPEC.orbitLimits.minPolar; controls.enablePan = true; controls.enableZoom = true;
+    }
+    activeInterior?.mod.setMode?.(mode === 'walk' ? 'walk' : 'dollhouse');
+    if (prev !== mode) ev.emit('mode', { mode });
   }
 
   /* ----------------------------- tour ----------------------------- */
@@ -431,6 +479,8 @@ export async function createApp({ canvas, container = document.body, onProgress 
       applyLens();
       if (flight.t >= 1) flight = null;
       camera.lookAt(controls.target);
+    } else if (viewMode === 'walk') {
+      walk.update(dt);                                   // first person: OrbitControls.update() would re-aim the camera
     } else {
       if (relaxShift) { lens.shift *= 0.85; if (Math.abs(lens.shift) < 0.002) { lens.shift = 0; relaxShift = false; } applyLens(); }
       controls.update();
@@ -526,7 +576,13 @@ export async function createApp({ canvas, container = document.body, onProgress 
     setView, getView: () => currentView,
     setTime: (v) => applyTime(v), getTime: () => k, timeState: () => todState,
     tour: { play: tourPlay, stop: tourStop, playing: () => !!tour },
-    setInteractive(on) { controls.enabled = !!on; },
+    setInteractive(on) { interactive = !!on; controls.enabled = interactive && viewMode !== 'walk'; },
+    getMode: () => viewMode,
+    walk: {
+      setStick: (x, y) => walk.setStick(x, y), active: () => viewMode === 'walk',
+      /** Place the walker (shots, guided tours): pos/target [x, y, z]. Collision still applies. */
+      pose(pos, target) { if (viewMode !== 'walk') return false; const m = activeInterior?.mod || {}; walk.enable({ pos, target }, { colliders: m.colliders, bounds: m.bounds, eye: m.eye, radius: m.radius }); return true; },
+    },
     project(p) {
       const v = new THREE.Vector3(...p).project(camera);
       const rect = canvas.getBoundingClientRect();

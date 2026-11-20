@@ -15,6 +15,12 @@ export const cameras = {
   pool:      { label: 'Pool', ref: 'D', pos: [-31, 3.1, 44.5], target: [-31, 3.1, 20], hfov: 88, shift: { horizonY: 0.56 }, aspect: 1160 / 638, tod: 0.0 },
   clubhouse: { label: 'Clubhouse', ref: 'E', pos: [-18.5, 1.4, 7.5], target: [-28.5, 1.4, 18.5], hfov: 65, shift: { horizonY: 0.66 }, aspect: 1160 / 653, tod: 0.0, sun: { azim: 75, elev: 72 } },   // high E sun: east face lit; hero-tower shadow (16 m) stops short of the clubhouse
   gym:       { label: 'Gym', ref: 'F', interior: true, pos: [0, 1.25, 4.6], target: [0, 1.25, -4.75], hfov: 78, shift: { horizonY: 0.505 }, aspect: 1160 / 633, tod: 0.0 },
+  // v1.15 sample 2 BHK flat (src/interior-flat.js). `mode`: dollhouse = orbit a cut-away model; walk = first person.
+  // Phones (portrait) keep the whole flat in frame from further back, and a narrower walk lens (vertical ~76 deg).
+  flat:      { label: 'Sample 2 BHK', interior: 'flat', mode: 'dollhouse', pos: [11, 19.5, 17], target: [0.8, 0.5, 0.9], fov: 34, aspect: 16 / 9,
+    portrait: { pos: [12.5, 25, 19.5], fit: 0.5 }, limits: { minDistance: 8, maxDistance: 42, minPolar: 0.12, maxPolar: 1.15 } },
+  flatWalk:  { label: 'Walk-through', interior: 'flat', mode: 'walk', dock: false, dockAs: 'flat', exitTo: 'flat',
+    pos: [-0.2, 1.6, -3.0], target: [-2.8, 1.45, 2.2], fov: 52, aspect: 16 / 9, portrait: { fit: 0.42 } },
   orbit:     { label: 'Explore', pos: [70, 55, 110], target: [-5, 12, 0], fov: 40 },
 };
 // v1.6 full tour: every exterior view incl. the free-orbit overview (loops seamlessly in idle attract mode)

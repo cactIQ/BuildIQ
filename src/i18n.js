@@ -11,6 +11,10 @@ export const STRINGS = [
   'Snapshot', 'Fullscreen', 'Exit fullscreen', 'Details', 'Close', 'UI size', 'Views', 'Language',
   // views
   'Hero', 'Aerial', 'Elevation', 'Pool', 'Clubhouse', 'Aerial North', 'Gym', 'Explore',
+  // sample flat (v1.15)
+  'Sample 2 BHK', 'Walk-through', 'Dollhouse', 'Walk', 'Sample flat', 'Move',
+  'Drag to orbit. Scroll or pinch to zoom.', 'Drag to look. WASD or arrow keys to move, or click the floor.',
+  'Drag to look. Use the joystick or tap the floor to move.',
   // tags
   'Tower A', 'Tower B', 'Play area', 'Plaza', 'Entrance',
   // panel
@@ -44,6 +48,10 @@ const hi = {
   'Close': 'बंद करें', 'UI size': 'आकार', 'Views': 'दृश्य', 'Language': 'भाषा',
   'Hero': 'मुख्य दृश्य', 'Aerial': 'हवाई दृश्य', 'Elevation': 'सामने का दृश्य', 'Pool': 'स्विमिंग पूल', 'Clubhouse': 'क्लबहाउस',
   'Aerial North': 'उत्तर से हवाई दृश्य', 'Gym': 'जिम', 'Explore': 'घूमें',
+  'Sample 2 BHK': 'सैंपल 2 BHK', 'Walk-through': 'वॉक-थ्रू', 'Dollhouse': 'डॉलहाउस', 'Walk': 'चलें', 'Sample flat': 'सैंपल फ़्लैट',
+  'Move': 'चलाएँ', 'Drag to orbit. Scroll or pinch to zoom.': 'घुमाने के लिए खींचें। ज़ूम के लिए स्क्रॉल या पिंच करें।',
+  'Drag to look. WASD or arrow keys to move, or click the floor.': 'देखने के लिए खींचें। चलने के लिए WASD या तीर कुंजियाँ दबाएँ, या फ़र्श पर क्लिक करें।',
+  'Drag to look. Use the joystick or tap the floor to move.': 'देखने के लिए खींचें। चलने के लिए जॉयस्टिक का उपयोग करें या फ़र्श पर टैप करें।',
   'Tower A': 'टॉवर A', 'Tower B': 'टॉवर B', 'Play area': 'खेल क्षेत्र', 'Plaza': 'प्लाज़ा', 'Entrance': 'प्रवेश द्वार',
   'Placeholder': 'नमूना', 'Placeholder content': 'नमूना सामग्री', 'Key facts': 'मुख्य तथ्य', 'Amenities': 'सुविधाएँ',
   'Enquire now': 'अभी पूछताछ करें', 'Registration': 'पंजीकरण', 'QR placeholder': 'QR (नमूना)', 'Fly to view': 'दृश्य पर जाएँ',
@@ -77,6 +85,10 @@ const mr = {
   'Close': 'बंद करा', 'UI size': 'आकार', 'Views': 'दृश्ये', 'Language': 'भाषा',
   'Hero': 'मुख्य दृश्य', 'Aerial': 'हवाई दृश्य', 'Elevation': 'समोरील दृश्य', 'Pool': 'जलतरण तलाव', 'Clubhouse': 'क्लबहाऊस',
   'Aerial North': 'उत्तरेकडून हवाई दृश्य', 'Gym': 'जिम', 'Explore': 'फिरा',
+  'Sample 2 BHK': 'सॅम्पल 2 BHK', 'Walk-through': 'वॉक-थ्रू', 'Dollhouse': 'डॉलहाऊस', 'Walk': 'चाला', 'Sample flat': 'सॅम्पल फ्लॅट',
+  'Move': 'हलवा', 'Drag to orbit. Scroll or pinch to zoom.': 'फिरवण्यासाठी ओढा. झूमसाठी स्क्रोल किंवा पिंच करा.',
+  'Drag to look. WASD or arrow keys to move, or click the floor.': 'पाहण्यासाठी ओढा. चालण्यासाठी WASD किंवा बाण कळा वापरा, किंवा फरशीवर क्लिक करा.',
+  'Drag to look. Use the joystick or tap the floor to move.': 'पाहण्यासाठी ओढा. चालण्यासाठी जॉयस्टिक वापरा किंवा फरशीवर टॅप करा.',
   'Tower A': 'टॉवर A', 'Tower B': 'टॉवर B', 'Play area': 'खेळाचे क्षेत्र', 'Plaza': 'प्लाझा', 'Entrance': 'प्रवेशद्वार',
   'Placeholder': 'नमुना', 'Placeholder content': 'नमुना मजकूर', 'Key facts': 'मुख्य तथ्ये', 'Amenities': 'सुविधा',
   'Enquire now': 'आत्ताच चौकशी करा', 'Registration': 'नोंदणी', 'QR placeholder': 'QR (नमुना)', 'Fly to view': 'दृश्याकडे जा',

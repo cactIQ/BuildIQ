@@ -325,3 +325,27 @@ reviewed it against the photo and the code before the build.
   It is placed without animation on load, resize and font load. Reduced motion: it jumps, no stretch.
 - Checked: the pill matches the active tab at 1600 px and 390 px (scrolled dock), 0 console errors, 37 programs.
   Shots: `shots/v1.14/`. The language chips reload the page, so they do not slide.
+## v1.15 update (2026-11-20): sample 2 BHK flat (dollhouse + first-person walk)
+- New dock tab "Sample 2 BHK" opens a furnished luxury 2 BHK. Inside the flat, a liquid-glass toggle switches between
+  **Dollhouse** (orbit a cut-away model) and **Walk** (first person). Esc in Walk returns to Dollhouse.
+- Files: `src/interior-flat.js` (builder), `src/materials/flat.js` (plan data `FLAT` + materials), `src/tex/recipes-flat.js`
+  (white marble, worker), `src/walk.js` (walk controller). Core now caches several interiors (`interiorKey`, `interiors`
+  map) and has view modes (`applyMode`: orbit, look, dollhouse, walk). Presets: `flat`, `flatWalk` (`dock: false`).
+- Plan: about 90 m2 carpet, 12 x 9 m plus a 1.5 m balcony, 3.0 m ceiling. Living + dining, open kitchen with island,
+  master bed with bath, second bed, common bath, foyer, passage, balcony.
+- Dollhouse: no ceiling, partitions cut to 1.1 m, exterior walls facing the camera cut to 1.1 m (the others full height,
+  with dark section caps). Phones frame the whole flat from further back.
+- Walk: drag to look (no pointer lock), WASD / arrows (left/right turn), Shift faster, tap or click the floor to walk
+  there, a joystick on touch screens. Collision against walls, door leaves and furniture (radius 0.25 m, sub-stepped).
+- Marble: 600 x 1200 mm staggered slabs, grey veins, 2 mm grout, clearcoat. "Bit shiny" is a mirrored copy of the room
+  under an 80 % opaque floor in Walk mode (same geometry and materials: no new programs).
+- Lighting: no lights. RoomEnvironment PMREM (0.8) + a painted floor lightMap (downlight pools, daylight spill, wall
+  contact shade) + emissive coves, downlights, pendants and lamp shades.
+- Checked: 0 console errors and 0 warnings across hero, gym, flat, walk, Esc, pool. Dollhouse 26 draw calls / 13k tris;
+  walk 61-70 draw calls / 38k tris; 53 programs after entering the flat, unchanged across modes and re-entry. Collision:
+  forward into the TV unit stops at 0.25 m, into a partition at 0.25 m; walking through the master and bath doors works.
+  390 x 844: joystick above the dock, no horizontal overflow. Shots: `shots/v1.15/`.
+- Interior entry no longer trips the "[perf] new shader program" warning (the lazy compile is expected; the check is
+  paused while it runs).
+- Not run: `npm test` (no Node here). New test: `tests/modules.test.mjs` "interior flat builds within budget, grounded,
+  walkable".

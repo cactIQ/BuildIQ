@@ -94,3 +94,14 @@ Spatial split, to avoid double-building:
 ## Compliance
 Never use the reference images as textures or trace their art. Never write the real project, developer or
 locality names, or the listing site's name, anywhere. Branding comes from `SPEC.brand` only.
+
+## Interiors (v1.15)
+- An interior is a module like any other (`build(ctx) -> { group, update?, setMode?, colliders?, bounds?, eye?, radius? }`),
+  registered in `MODULE_FILES` / `MATERIAL_FILES` in `src/core.js` and built lazily into its own scene on first entry.
+- Camera presets name it: `interior: 'flat'` (legacy `interior: true` is the gym) and optionally `mode: 'dollhouse' | 'walk'`.
+  `dock: false` hides a preset from the dock; `dockAs` highlights another tab; `exitTo` is where Esc goes from Walk.
+- `setMode('all' | 'dollhouse' | 'walk')` toggles visibility groups only (never materials). Core calls `setMode('all')`
+  before `compileAsync`, so every variant is compiled once.
+- Walk collision uses `colliders` (plan rectangles `[x0, z0, x1, z1]`) and `bounds`. Owner: core (`src/walk.js`,
+  `src/interior-flat.js`, `src/materials/flat.js`, `src/tex/recipes-flat.js`).
+- Flat budget (`npm test`): dollhouse <= 45 draw calls, walk <= 90 (the floor reflection draws the room twice), <= 150k tris.

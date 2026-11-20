@@ -561,3 +561,35 @@ body.interior .tags { display: none; }
   .panel, .caption, .toast, .chrome, #poster, .tag, .letterbox span { transition-duration: .01s !important; }
   .pulse { animation: none; }
 }
+
+/* ---- v1.15 sample flat: Dollhouse / Walk toggle (reuses the dock's liquid pill), hint, touch joystick ---- */
+.flat-seg, .flat-hint, .joy { display: none; }
+body.interior .tod-ruler { display: none; }                  /* time of day does not light the interiors */
+body.in-flat .flat-seg { display: block; position: absolute; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 3;
+  border-radius: var(--r-pill); overflow: hidden; box-shadow: var(--g-shadow); }
+.flat-seg .dock-btn { min-width: 7rem; }
+body.in-flat .flat-hint { display: block; }
+.flat-hint { position: absolute; top: 4.6rem; left: 50%; z-index: 3; transform: translate(-50%, -6px); max-width: calc(100vw - 2rem); box-sizing: border-box;
+  padding: .5rem 1rem; border-radius: var(--r-pill); font-size: .8rem; line-height: 1.35; letter-spacing: .02em; text-align: center; color: var(--text);
+  opacity: 0; pointer-events: none; transition: opacity .35s var(--ease), transform .35s var(--ease); }
+.flat-hint.show { opacity: 1; transform: translate(-50%, 0); }
+body.mode-walk #c { cursor: grab; }
+body.mode-walk #c:active { cursor: grabbing; }
+.joy { position: absolute; z-index: 3; left: calc(24px + env(safe-area-inset-left)); bottom: calc(3rem + 32px + env(safe-area-inset-bottom));
+  width: 120px; height: 120px; border-radius: 50%; touch-action: none; user-select: none; -webkit-user-select: none; box-shadow: var(--lq-rim), var(--g-shadow); }
+@media (pointer: coarse) { body.mode-walk .joy { display: block; } }
+.joy-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%;
+  background: var(--lq-glint), var(--g-inner-hover); box-shadow: var(--lq-rim), var(--lq-drop); transition: transform .18s var(--ease); }
+.joy-knob::before { content: ''; position: absolute; inset: 4px; border-radius: 50%; border: 1px solid rgba(255,255,255,.14); }
+.joy.on .joy-knob { transition: none; }
+body.present .flat-seg, body.present .flat-hint, body.present .joy { display: none; }
+@media (max-width: 699px) {
+  body.in-flat .flat-seg { top: 3.7rem; }
+  .flat-seg .dock-btn { min-width: 6rem; }
+  .flat-hint { top: 7rem; font-size: .75rem; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  body.in-flat .flat-seg { top: .45rem; }
+  .flat-hint { top: 3.6rem; }
+  .joy { width: 100px; height: 100px; bottom: calc(2.6rem + 20px + env(safe-area-inset-bottom)); }
+}

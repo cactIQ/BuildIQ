@@ -42,3 +42,14 @@ Built once, reused per project. Each one is driven by the spec, not by this site
 **Suggested next step:** move the compass and the time ruler out of `ui.js` into their own modules
 (`src/ui/compass.js`, `src/ui/time-ruler.js`), the way the look panel already is. Then each asset is one import plus
 spec data, and the set can become a starter kit for the next project.
+
+### v1.15 addition: sample-flat kit
+| Asset | Where | Inputs it needs from a new project |
+|---|---|---|
+| Sample flat (dollhouse + walk) | `src/interior-flat.js`, `src/materials/flat.js` (`FLAT`) | The plan (`walls`, `zones`) and furniture positions |
+| Walk controller | `src/walk.js` | Collider rectangles and bounds from the interior module |
+| White marble floor | `src/tex/recipes-flat.js` (`flatMarble`) | None (slab size, grout and colours are parameters) |
+| Polished-floor reflection | end of `src/interior-flat.js` (mirrored group) | None |
+
+Next step for this kit: move the furniture pieces (sofa, bed, dining set, vanity, kitchen run) into a small
+`src/furniture.js` library so a new floor plan only lists positions.

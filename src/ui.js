@@ -8,7 +8,7 @@ import { mountEmbed } from './embed.js';
 import { createFrost } from './frost.js';
 import { mountLookPanel } from './look-panel.js';
 
-const VIEW_ORDER = ['hero', 'aerial', 'elevation', 'pool', 'clubhouse', 'aerialN', 'gym', 'orbit'];
+const VIEW_ORDER = ['hero', 'aerial', 'elevation', 'pool', 'clubhouse', 'aerialN', 'gym', 'flat', 'orbit'];
 const TOD = [['Day', 0], ['Golden', 0.35], ['Dusk', 0.65], ['Night', 1]];
 const CAPTIONS = {
   hero: 'Two residential towers set around landscaped open space.',
@@ -238,7 +238,8 @@ export function mountUI({ root, SPEC, params }) {
   /* ----------------------------- attach (live 3D) ----------------------------- */
   function attach(app) {
     const cams = SPEC.cameras;
-    const views = VIEW_ORDER.filter((v) => cams[v]).concat(Object.keys(cams).filter((v) => !VIEW_ORDER.includes(v)));
+    // dock tabs: every preset except those marked `dock: false` (e.g. the flat's walk view, reached from its toggle)
+    const views = VIEW_ORDER.filter((v) => cams[v]).concat(Object.keys(cams).filter((v) => !VIEW_ORDER.includes(v))).filter((v) => cams[v].dock !== false);
     const canvas = document.getElementById('c');
     let presenting = false, blanked = false, busyView = null, hideTagsUntil = 0, tourEnded = false, panelOpen = false;
 
@@ -283,27 +284,72 @@ export function mountUI({ root, SPEC, params }) {
         onClick: () => { app.tour.stop(); if (app.getView() === id && id !== 'orbit') return; app.setView(id); } });
       dockBtns[id] = b; return b;
     })])]);
-    let pillId = null;
-    function placePill(id, animate) {
-      const b = dockBtns[id];
-      if (!b) { dockPill.style.opacity = '0'; pillId = null; return; }
-      if (!b.offsetWidth) return;                      // not laid out yet: the resize / fonts hook places it later
-      const prev = pillId && pillId !== id ? dockBtns[pillId] : null;
-      const moving = !!(animate && prev && !reduceMotion);
-      dockPill.classList.toggle('no-anim', !moving);
-      if (moving) {
-        dockPill.style.transformOrigin = b.offsetLeft > prev.offsetLeft ? 'left center' : 'right center';
-        dockPill.classList.remove('stretch'); void dockPill.offsetWidth; dockPill.classList.add('stretch');
+    /** Sliding liquid pill for a group of buttons keyed by id (dock tabs, the flat's mode toggle). */
+    function pillMover(pill, btns) {
+      let cur = null;
+      function place(id, animate) {
+        const b = btns[id];
+        if (!b) { pill.style.opacity = '0'; cur = null; return; }
+        if (!b.offsetWidth) { cur = id; return; }        // not laid out yet: the resize / fonts hook places it later
+        const prev = cur && cur !== id ? btns[cur] : null;
+        const moving = !!(animate && prev && prev.offsetWidth && !reduceMotion);
+        pill.classList.toggle('no-anim', !moving);
+        if (moving) {
+          pill.style.transformOrigin = b.offsetLeft > prev.offsetLeft ? 'left center' : 'right center';
+          pill.classList.remove('stretch'); void pill.offsetWidth; pill.classList.add('stretch');
+        }
+        pill.style.width = b.offsetWidth + 'px';
+        pill.style.height = b.offsetHeight + 'px';
+        pill.style.top = b.offsetTop + 'px';
+        pill.style.translate = b.offsetLeft + 'px 0';
+        pill.style.opacity = '1';
+        cur = id;
       }
-      dockPill.style.width = b.offsetWidth + 'px';
-      dockPill.style.height = b.offsetHeight + 'px';
-      dockPill.style.top = b.offsetTop + 'px';
-      dockPill.style.translate = b.offsetLeft + 'px 0';
-      dockPill.style.opacity = '1';
-      pillId = id;
+      addEventListener('resize', () => place(cur, false));
+      document.fonts?.ready.then(() => place(cur, false));
+      return { place };
     }
-    addEventListener('resize', () => placePill(pillId, false));
-    document.fonts?.ready.then(() => placePill(pillId, false));
+    const dockMover = pillMover(dockPill, dockBtns);
+
+    /* --- v1.15 sample flat: Dollhouse / Walk toggle, a one-line hint, and a joystick on touch screens --- */
+    const segPill = el('span', { class: 'dock-pill', 'aria-hidden': 'true' });
+    const segBtns = {};
+    for (const [id, label] of [['flat', 'Dollhouse'], ['flatWalk', 'Walk']]) {
+      if (!cams[id]) continue;
+      segBtns[id] = el('button', { class: 'dock-btn', type: 'button', 'aria-pressed': 'false', text: label === 'Dollhouse' ? t('Dollhouse') : t('Walk'),
+        onClick: () => { if (app.getView() !== id) app.setView(id); } });
+    }
+    const flatSeg = el('div', { class: 'flat-seg glass', role: 'group', 'aria-label': t('Sample flat') }, [el('div', { class: 'dock-in' }, [segPill, ...Object.values(segBtns)])]);
+    const segMover = pillMover(segPill, segBtns);
+    const flatHint = el('div', { class: 'flat-hint glass', role: 'status' });
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    let hintTimer = 0;
+    const hideHint = () => { clearTimeout(hintTimer); flatHint.classList.remove('show'); };
+    function showHint(mode) {
+      flatHint.textContent = mode === 'walk'
+        ? (coarse ? t('Drag to look. Use the joystick or tap the floor to move.') : t('Drag to look. WASD or arrow keys to move, or click the floor.'))
+        : t('Drag to orbit. Scroll or pinch to zoom.');
+      flatHint.classList.add('show'); clearTimeout(hintTimer); hintTimer = setTimeout(hideHint, 8000);
+    }
+    app.on('walkmove', () => { if (flatHint.classList.contains('show')) hintTimer = (clearTimeout(hintTimer), setTimeout(hideHint, 1200)); });
+    app.on('interact', () => { if (app.getMode?.() === 'dollhouse' && flatHint.classList.contains('show')) hintTimer = (clearTimeout(hintTimer), setTimeout(hideHint, 1200)); });
+    const joyKnob = el('span', { class: 'joy-knob' });
+    const joy = el('div', { class: 'joy glass', role: 'group', 'aria-label': t('Move') }, [joyKnob]);
+    {
+      let jid = null;
+      const move = (e) => {
+        const r = joy.getBoundingClientRect(), R = r.width / 2 - 10;
+        let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+        const m = Math.hypot(dx, dy); if (m > R) { dx *= R / m; dy *= R / m; }
+        joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+        const x = dx / R, y = dy / R;
+        if (Math.hypot(x, y) < 0.12) app.walk.setStick(0, 0); else app.walk.setStick(x, y);
+      };
+      const end = (e) => { if (e.pointerId !== jid) return; jid = null; joy.classList.remove('on'); joyKnob.style.transform = ''; app.walk.setStick(0, 0); };
+      joy.addEventListener('pointerdown', (e) => { jid = e.pointerId; joy.setPointerCapture?.(e.pointerId); joy.classList.add('on'); move(e); e.preventDefault(); });
+      joy.addEventListener('pointermove', (e) => { if (e.pointerId === jid) move(e); });
+      joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
+    }
 
     /* --- panel --- */
     const panel = minimal ? null : buildPanel(app, { onClose: () => setPanel(false) });
@@ -348,7 +394,7 @@ export function mountUI({ root, SPEC, params }) {
       rose.setAttribute('transform', `rotate(${(-deg).toFixed(2)} 24 24)`);
       nTxt.setAttribute('transform', `rotate(${deg.toFixed(2)} 24 7.2)`);          // keep the N upright
     });
-    const chrome = el('div', { class: 'chrome' }, [tagLayer, topbar, compass, todGroup, caption, dock, panel, minCta, lookPanel.el]);
+    const chrome = el('div', { class: 'chrome' }, [tagLayer, topbar, compass, todGroup, flatSeg, flatHint, joy, caption, dock, panel, minCta, lookPanel.el]);
     const letterbox = el('div', { class: 'letterbox', 'aria-hidden': 'true' }, [el('span', { class: 'lb-top' }), el('span', { class: 'lb-bot' })]);
     const presentTitle = el('div', { class: 'present-title', 'aria-live': 'polite' });
     const blank = el('div', { class: 'blank', 'aria-label': t('Blank screen') });
@@ -363,6 +409,9 @@ export function mountUI({ root, SPEC, params }) {
         { el: lookPanel.el, active: () => lookPanel.isOpen() },
         { el: todGroup.querySelector('.tr-bubble') }, { el: todGroup.querySelector('.tr-window') },
         { el: caption, active: () => caption.classList.contains('show') },
+        { el: flatSeg, active: () => document.body.classList.contains('in-flat') },
+        { el: flatHint, active: () => document.body.classList.contains('in-flat') && flatHint.classList.contains('show') },
+        { el: joy, active: () => coarse && document.body.classList.contains('mode-walk') },
       ],
     });
     requestAnimationFrame(() => chrome.classList.add('in'));
@@ -373,8 +422,15 @@ export function mountUI({ root, SPEC, params }) {
 
     /* --- views --- */
     function onView({ id }) {
-      for (const [v, b] of Object.entries(dockBtns)) { const on = v === id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); if (on && b.scrollIntoView && isPhone()) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }
-      placePill(id, true);
+      const dockId = cams[id]?.dockAs || id;
+      for (const [v, b] of Object.entries(dockBtns)) { const on = v === dockId; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); if (on && b.scrollIntoView && isPhone()) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }
+      dockMover.place(dockId, true);
+      const mode = cams[id]?.mode || '', inFlat = cams[id]?.interior === 'flat';
+      document.body.classList.toggle('in-flat', inFlat);
+      document.body.classList.toggle('mode-walk', mode === 'walk');
+      document.body.classList.toggle('mode-dollhouse', mode === 'dollhouse');
+      for (const [v, b] of Object.entries(segBtns)) { const on = v === id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+      if (inFlat) { segMover.place(id, true); showHint(mode); } else hideHint();
       const label = t(cams[id]?.label || id);
       canvas.setAttribute('aria-label', `${t('Interactive 3D view')}: ${B.name}, ${label}`);
       live.textContent = label;
@@ -387,8 +443,8 @@ export function mountUI({ root, SPEC, params }) {
     onView({ id: app.getView() });
 
     // interior lazy-load progress reuses the loader in a compact form
-    app.on('progress', ({ p, label }) => {
-      if (label === 'Preparing interior' && p < 1) { busyView = 'gym'; setP(0.15, { instant: true }); loader.classList.remove('determinate'); loaderCaption.textContent = t('Preparing interior'); showLoader(true); }
+    app.on('progress', ({ p, label, view }) => {
+      if (label === 'Preparing interior' && p < 1) { busyView = view || 'gym'; setP(0.15, { instant: true }); loader.classList.remove('determinate'); loaderCaption.textContent = t('Preparing interior'); showLoader(true); }
       else if (p >= 1 && loaderShown) { setP(1, { instant: true }); setTimeout(hideLoader, 200); }
     });
     app.on('error', ({ code }) => { if (code === 'interior') { hideLoader(); say(t('Something went wrong loading the interior.')); } });

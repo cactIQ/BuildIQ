@@ -3,8 +3,9 @@ import { recipes as base } from './recipes-base.js';
 import { recipes as tower } from './recipes-tower.js';
 import { recipes as site } from './recipes-site.js';
 import { recipes as amenities } from './recipes-amenities.js';
+import { recipes as flat } from './recipes-flat.js';
 
-const ALL = { ...base, ...tower, ...site, ...amenities };
+const ALL = { ...base, ...tower, ...site, ...amenities, ...flat };
 
 self.onmessage = (e) => {
   const { id, recipe, params } = e.data;

@@ -75,3 +75,35 @@ test('combined budgets', () => {
   assert.ok(sum('draws') <= SPEC.quality.budgets.total.draws - 10, `total draws ${sum('draws')}`);   // 10 reserved for core (sky, domes)
   assert.ok(sum('tris') <= SPEC.quality.budgets.total.tris, `total tris ${sum('tris')}`);
 });
+
+// v1.15 sample flat interior: builds under node, stays within its own budget in both modes, grounded, and the walk
+// start pose and every door opening are walkable (no collider covers them).
+test('interior flat builds within budget, grounded, walkable', async () => {
+  const ctx = await makeCtx();
+  (await import('../src/materials/flat.js')).define?.(ctx.M, SPEC);
+  const { FLAT } = await import('../src/materials/flat.js');
+  const out = await (await import('../src/interior-flat.js')).build(ctx);
+  assert.ok(out.group?.isObject3D && Array.isArray(out.colliders) && out.colliders.length > 20);
+  for (const mode of ['dollhouse', 'walk']) {
+    out.setMode(mode);
+    const s = stats(out.group);
+    assert.equal(s.nan, 0, 'NaN positions');
+    // walk mode draws the room twice (mirrored floor reflection)
+    assert.ok(s.draws <= (mode === 'walk' ? 90 : 45), `flat ${mode} draws ${s.draws}`);
+    assert.ok(s.tris <= 150000, `flat ${mode} tris ${s.tris} > 150k`);
+    console.log(`  flat ${mode}: draws ${s.draws}, tris ${s.tris}`);
+  }
+  const v = validateRegistry(ctx.registry, SPEC);
+  assert.deepEqual(v.floating, [], 'floating objects'); assert.deepEqual(v.buried, [], 'buried objects');
+  assert.deepEqual(v.scale, [], 'scale outliers'); assert.deepEqual(v.nan, [], 'NaN bboxes');
+  const free = (x, z, r = FLAT.radius) => !out.colliders.some(([x0, z0, x1, z1]) => {
+    const cx = Math.min(Math.max(x, x0), x1), cz = Math.min(Math.max(z, z0), z1); return (x - cx) ** 2 + (z - cz) ** 2 < r * r; });
+  const start = SPEC.cameras.flatWalk.pos;
+  assert.ok(free(start[0], start[2]), 'walk start pose is inside a collider');
+  for (const w of FLAT.walls) for (const o of w.open) {
+    if (o.win || o.y0 > 0) continue;
+    const s = o.slide ? (o.stack === 'a' ? o.b - 0.35 : o.a + 0.35) : (o.a + o.b) / 2;
+    const [x, z] = w.axis === 'x' ? [s, w.at] : [w.at, s];
+    assert.ok(free(x, z, 0.2), `opening ${w.id} [${o.a}, ${o.b}] is blocked`);
+  }
+});
